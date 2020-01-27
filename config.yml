@@ -1,0 +1,16 @@
+# lto (ltfs) sizes in Bytes - 2G to be safe
+lto-sizes:
+  - LTO5: 1308693760000
+lto-ignore-tapes:
+  - Z00001L5
+  - Z00002L5
+
+
+database: "tapebackup.db"
+database-backup-git-path: ""
+remote-server: "sever.example.com"
+remote-base-dir: "/mnt/bigDataStorage"
+remote-download-dir: "/mnt/bigDataStorage/Videos"
+local-download-dir: "test-download-dir"
+local-enc-dir: "test-enc-dir"
+enc-key: ""
