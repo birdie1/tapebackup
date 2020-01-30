@@ -75,5 +75,12 @@ Attached Changer API: No
 root@wuerfel /home/jonas # mt-st -f /dev/st0 erase
 ```
 
-
+## Mount and umount
+```
+mtx -f /dev/sg5 unload
+mtx -f /dev/sg5 load 4
+mkltfs -d /dev/st0
+ltfs /mnt/lto5
+umount /mnt/lto5
+```
 

@@ -47,6 +47,7 @@ child_process_pid = 0
 
 
 with open("{}/config.yml".format(files_prefix), 'r') as ymlfile:
+#with open("{}/config-kiste.yml".format(files_prefix), 'r') as ymlfile:
     cfg = yaml.full_load(ymlfile)
 
 
@@ -219,6 +220,26 @@ def update_broken_db_pack_entry(conn, id):
     conn.commit()
 
 
+def get_full_tapes(conn, label):
+    cur = conn.cursor()
+    sql = ''' SELECT id, label, full FROM tapedevices 
+            WHERE label=?
+            AND full=1
+            '''
+    cur.execute(sql, (label,))
+    return cur.fetchall()
+
+
+def get_used_tapes(conn, label):
+    cur = conn.cursor()
+    sql = ''' SELECT id, label, full FROM tapedevices 
+            WHERE label=?
+            AND full=0
+            '''
+    cur.execute(sql, (label,))
+    return cur.fetchall()
+
+
 def strip_base_path(fullpath):
     return os.path.relpath(fullpath, cfg['remote-base-dir'])
 
@@ -231,6 +252,30 @@ def strip_filename(path):
     return os.path.dirname(path)
 
 
+def get_tapes_tags_from_library(conn):
+    logger.info("Retrieving current tape tags in library")
+    commands = ['mtx', '-f', cfg['devices']['tapelib'] , 'status']
+    mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    tag_in_tapelib = []
+    tags_to_remove_from_library = []
+
+    for i in mtx.stdout.readlines():
+        line = i.decode('utf-8').rstrip()
+        if line.find('VolumeTag') != -1:
+            tag = line[line.find('=') + 1:].rstrip().lstrip()
+            if tag in cfg['lto-ignore-tapes']:
+                logger.debug('Ignore Tag {} because exists in ignore list in config'.format(tag))
+            elif len(get_full_tapes(conn, tag)) > 0:
+                logger.debug('Ignore Tag {} because exists in database and is full'.format(tag))
+                tags_to_remove_from_library.append(tag)
+            else:
+                tag_in_tapelib.append(tag)
+
+    logger.info("Got following tags for usage: {}".format(tag_in_tapelib))
+    return tag_in_tapelib, tags_to_remove_from_library
+
+
+## main functions from here:
 def create_key():
     alphabet = string.ascii_letters + string.digits
     print(''.join(secrets.choice(alphabet) for i in range(128)))
@@ -377,10 +422,22 @@ def pack_files():
     # openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -in test.enc -out test.mp4
 
 
-
 def write_files():
-    pass
+    conn = create_connection(cfg['database'])
+    tapes, tapes_to_remove = get_tapes_tags_from_library(conn)
+    if len(tapes_to_remove) > 0:
+        print("These tapes are full, please remove from library: {}".format(tapes_to_remove))
+        logger.warning("These tapes are full, please remove from library: {}".format(tapes_to_remove))
 
+    if len(tapes) == 0:
+        logger.error("No free Tapes in Library, but you can remove these full once: {}".format(tapes_to_remove))
+        sys.exit(0)
+
+    ## do folder of 1,3tb encrypted filed
+    ## see if any angefangene bänder, dann auch kleinere folder machen
+    ##get_used_tapes(conn, tag)
+
+    ##do more stuff here
 
 def restore_file():
     pass
@@ -447,18 +504,20 @@ if __name__ == "__main__":
     if args.version:
         show_version()
 
-    if not os.path.isfile(cfg['database']) and args.command != "initDB":
+    if not os.path.isfile(cfg['database']) and ( args.command != "initDB" or args.command != "createKey" ):
         logger.error("Database does not exist: {}".format(cfg['database']))
         sys.exit(0)
+    if ( cfg['enc-key'] == "" or len(cfg['enc-key']) < 128 ) and ( args.command != "initDB" or args.command != "createKey" ):
+        logger.error("Encryption key is empty, please use at least 128 Byte Key")
+        sys.exit(0)
+
     if not os.path.isdir(cfg['local-download-dir']):
         logger.error("'local-download-dir' not specified or does not exist")
         sys.exit(0)
     if not os.path.isdir(cfg['local-enc-dir']):
         logger.error("'local-enc-dir' not specified or does not exist")
         sys.exit(0)
-    if ( cfg['enc-key'] == "" or len(cfg['enc-key']) < 128 ) and args.command != "createKey":
-        logger.error("Encryption key is empty, please use at least 128 Byte Key")
-        sys.exit(0)
+
 
 
     if args.command == "get":
