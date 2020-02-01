@@ -123,6 +123,52 @@ def init_db():
         print(e)
 
 
+def total_rows(cursor, table_name, print_out=False):
+    """ Returns the total number of rows in the database """
+    cursor.execute('SELECT COUNT(*) FROM {}'.format(table_name))
+    count = cursor.fetchall()
+    if print_out:
+        print('\nTotal rows: {}'.format(count[0][0]))
+    return count[0][0]
+
+
+def table_col_info(cursor, table_name, print_out=False):
+    """ Returns a list of tuples with column informations:
+    (id, name, type, notnull, default_value, primary_key)
+    """
+    cursor.execute('PRAGMA TABLE_INFO({})'.format(table_name))
+    info = cursor.fetchall()
+
+    if print_out:
+        print("\nColumn Info:\nID, Name, Type, NotNull, DefaultVal, PrimaryKey")
+        for col in info:
+            print(col)
+    return info
+
+
+def values_in_col(cursor, table_name, print_out=True):
+    """ Returns a dictionary with columns as keys
+    and the number of not-null entries as associated values.
+    """
+    cursor.execute('PRAGMA TABLE_INFO({})'.format(table_name))
+    info = cursor.fetchall()
+    col_dict = dict()
+    for col in info:
+        col_dict[col[1]] = 0
+    for col in col_dict:
+        cursor.execute('SELECT ({0}) FROM {1} '
+                  'WHERE {0} IS NOT NULL'.format(col, table_name))
+        # In my case this approach resulted in a
+        # better performance than using COUNT
+        number_rows = len(cursor.fetchall())
+        col_dict[col] = number_rows
+    if print_out:
+        print("\nNumber of entries per column:")
+        for i in col_dict.items():
+            print('{}: {}'.format(i[0], i[1]))
+    return col_dict
+
+
 def insert_file(conn, file):
     """
     Create a new project into the projects table
@@ -337,6 +383,19 @@ def repair_db():
     print("Fixed {} messed up pack entries".format(len(broken_p)))
 
 
+def status_db():
+    conn = create_connection(cfg['database'])
+    c = conn.cursor()
+    tables = ['files', 'tapedevices', 'alternative_file_names']
+
+    for i in tables:
+        print("")
+        print("######### SHOW TABLE {} ##########".format(i))
+        total_rows(c, i, print_out=True)
+        table_col_info(c, i, print_out=True)
+        values_in_col(c, i, print_out=True)
+
+
 def backup_db():
     ## Somethng like this. Then git stuff
     #conn = create_connection(cfg['database'])
@@ -344,7 +403,6 @@ def backup_db():
         #for line in con.iterdump():
             #f.write('%s\n' % line)
     pass
-
 
 
 def get_files():
@@ -356,12 +414,6 @@ def get_files():
     ssh = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     result = ssh.stdout.readlines()
     logger.info("Got file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-download-dir']))
-
-    #for i in result:
-    #    print(i.decode('UTF-8').rstrip())
-
-    #result = ['/mnt/mega/Videos/Dokumentationen dmax/Jägerleben/Jägerleben Staffel 01/Jägerleben - S01E01 - Kimme und Korn.mp4',
-    #          '/mnt/mega/Videos/Dokumentationen dmax/Supermaschinen/Supermaschinen Staffel 02/Supermaschinen - S02E02 - Riesen-Radlader.mp4']
 
     conn = create_connection(cfg['database'])
     file_count_total = len(result)
@@ -412,7 +464,6 @@ def get_files():
 
         if interrupted:
             break
-
 
 
 def pack_files():
@@ -510,19 +561,15 @@ subparser_write = subparsers.add_parser('write', help='Write directory into')
 
 
 subparser_init = subparsers.add_parser('initDB', help='Initialize SQLite DB')
+subparser_repair = subparsers.add_parser('repairDB', help='Repair SQLite DB after stopped operation')
+subparser_backup = subparsers.add_parser('backupDB', help='Backup SQLite DB to given GIT repo')
+subparser_dbstats = subparsers.add_parser('statusDB', help='Show SQLite Information')
 
 #subparser_db = subparsers.add_parser('db', help='Database operations')
 #subsubparser_db = subparser_db.add_subparsers(title='Commands', dest='command')
 #subsubparser_db.add_parser('init', help='Initialize SQLite DB')
 
 subparser_key = subparsers.add_parser('createKey', help='Create encryption key')
-
-
-subparser_repair = subparsers.add_parser('repairDB', help='Repair SQLite DB after stopped operation')
-
-
-subparser_backup = subparsers.add_parser('backupDB', help='Backup SQLite DB to given GIT repo')
-
 
 subparser_restore = subparsers.add_parser('restore', help='Restore File from Tape')
 subparser_restore.add_argument("-f", "--file", type=str, help="Specify filename or path/file")
@@ -569,6 +616,8 @@ if __name__ == "__main__":
         create_key()
     elif args.command == "repairDB":
         repair_db()
+    elif args.command == "statusDB":
+        status_db()
     elif args.command == "backupDB":
         if cfg['database-backup-git-path'] == "":
             logger.error("'database-backup-git-path' key is empty, please specify git path")
