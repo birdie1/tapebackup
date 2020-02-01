@@ -1,15 +1,26 @@
+## Description
+This program downloads files via SSH/Rsync from remote server, encrypt them using openssl and stores them on tape devices. It stores processed files and tapes into sqlite database.
+
+**Caution**: It will not detect changes on same filename. Use it only for non changing files, like mediafiles or pictures.
 ## Requirements
-https://aur.archlinux.org/packages/mt-st-git/
+It is written in Python 3.
 
 Kernel Modules: 
 - sg
 - st
 
-Programms: 
+Tools: 
 - mt (Arch mt-st-git)
 - mtx
+- LTFS
+  - [IBM Drives] OpenLTFS
+  - [HP/HPE Drives] HPE StoreOpen und Linear Tape File System (LTFS) Software https://buy.hpe.com/de/de/storage/storage-software/storage-device-management-software/storeever-tape-device-management-software/hpe-storeopen-linear-tape-file-system-ltfs-software/p/4249221
+- openssl
 
-## Howto use Tapelib from Linux
+## Howto use
+
+
+## Howto test tapelib from linux
 ### List Tape Devices
 ```
 root@wuerfel /home/jonas # lsscsi --generic
