@@ -77,13 +77,12 @@ def create_connection(db_file):
 def init_db():
 
     if os.path.isfile(cfg['database']):
-        logger.warning("Database file already exists. I do nothing!")
-        sys.exit(1)
+        logger.warning("Database file already exists. Just updating!")
 
     conn = create_connection(cfg['database'])
     c = conn.cursor()
 
-    sql_files = '''CREATE TABLE files (
+    sql_files = '''CREATE TABLE IF NOT EXISTS files (
             id INTEGER PRIMARY KEY,
             filename TEXT NOT NULL,
             full_path TEXT NOT NULL UNIQUE,
@@ -101,7 +100,7 @@ def init_db():
             verified INT DEFAULT 0     
             );'''
 
-    sql_tapedevice = '''CREATE TABLE tapedevices (
+    sql_tapedevice = '''CREATE TABLE IF NOT EXISTS tapedevices (
             id INTEGER PRIMARY KEY,
             label TEXT NOT NULL,
             full_date TEXT,
@@ -109,9 +108,17 @@ def init_db():
             full INT DEFAULT 0
             );'''
 
+    alternative_file_names = '''CREATE TABLE IF NOT EXISTS alternative_file_names (
+            id INTEGER PRIMARY KEY,
+            filename TEXT NOT NULL UNIQUE,
+            files_id INT NOT NULL,
+            date TEXT 
+            );'''
+
     try:
         c.execute(sql_files)
         c.execute(sql_tapedevice)
+        c.execute(alternative_file_names)
     except Error as e:
         print(e)
 
@@ -131,12 +138,16 @@ def insert_file(conn, file):
     return cur.lastrowid
 
 
-def check_if_file_exists_by_path(conn, relpath):
+def check_if_file_exists_by_path(conn, relpath, filename):
     cur = conn.cursor()
     cur.execute("SELECT * FROM files WHERE full_path=?", (relpath,))
+    rows_files = cur.fetchall()
 
-    rows = cur.fetchall()
-    if len(rows) == 0:
+    cur2 = conn.cursor()
+    cur2.execute("SELECT * FROM alternative_file_names WHERE filename=?", (filename,))
+    rows_alt_files = cur2.fetchall()
+
+    if len(rows_files) == 0 and len(rows_alt_files) == 0:
         return False
     else:
         return True
@@ -162,6 +173,24 @@ def update_file_after_download(conn, task):
     cur = conn.cursor()
     cur.execute(sql, task)
     conn.commit()
+
+
+def get_files_by_md5(conn, md5):
+    cur = conn.cursor()
+    sql = ''' SELECT id FROM files
+                WHERE md5sum_file=?
+                '''
+    cur.execute(sql, (md5,))
+    return cur.fetchall()
+
+
+def insert_alternative_file_names(conn, file):
+    sql = ''' INSERT INTO alternative_file_names (filename,files_id,date)
+              VALUES(?,?,?) '''
+    cur = conn.cursor()
+    cur.execute(sql, file)
+    conn.commit()
+    return cur.lastrowid
 
 
 def update_filename_enc(conn, filename_enc):
@@ -347,7 +376,7 @@ def get_files():
         filename = strip_path(fullpath)
         dir = strip_filename(relpath)
 
-        if not check_if_file_exists_by_path(conn, relpath):
+        if not check_if_file_exists_by_path(conn, relpath, filename):
             id = insert_file(conn, (filename, relpath))
             logger.info("Inserting file into database. Fileid: {}".format(id))
             print("Processing {}".format(fullpath))
@@ -365,9 +394,17 @@ def get_files():
                 md5 = md5sum("{}/{}".format(cfg['local-download-dir'], relpath))
                 downloaded_date = int(time.time())
 
-                update_file_after_download(conn, (mtime, downloaded_date, md5, 1, id))
-
-                logger.info("Download finished: {}".format(relpath))
+                duplicate = get_files_by_md5(conn, md5)
+                if len(duplicate) > 0:
+                    logger.info("File downloaded with another name. Storing filename in Database: {}".format(filename))
+                    print("File downloaded with another name. Storing filename in Database: {}".format(filename))
+                    duplicate_id = duplicate[0][0]
+                    inserted_id = insert_alternative_file_names(conn, (filename, duplicate_id, downloaded_date,))
+                    delete_broken_db_download_entry(conn, id)
+                    os.remove("{}/{}".format(cfg['local-download-dir'], relpath))
+                else:
+                    update_file_after_download(conn, (mtime, downloaded_date, md5, 1, id))
+                    logger.info("Download finished: {}".format(relpath))
             else:
                 logger.warning("Download failed, file: {} error: {}".format(relpath, rsync.stderr.readlines()))
         else:
