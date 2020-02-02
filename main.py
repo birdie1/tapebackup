@@ -258,7 +258,7 @@ def get_files():
             #print(rsync.stderr.readlines())
 
             if len(rsync.stderr.readlines()) == 0:
-                mtime = os.path.getmtime("{}/{}".format(cfg['local-download-dir'], relpath))
+                mtime = int(os.path.getmtime("{}/{}".format(cfg['local-download-dir'], relpath)))
                 md5 = md5sum("{}/{}".format(cfg['local-download-dir'], relpath))
                 downloaded_date = int(time.time())
 
