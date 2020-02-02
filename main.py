@@ -15,6 +15,7 @@ import secrets
 import string
 from functools import partial
 from sqlite3 import Error
+from lib.database import Database
 
 logging.basicConfig(level=logging.INFO,
                     format='[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s',
@@ -74,130 +75,6 @@ def create_connection(db_file):
     return conn
 
 
-def init_db():
-
-    if os.path.isfile(cfg['database']):
-        logger.warning("Database file already exists. Just updating!")
-
-    conn = create_connection(cfg['database'])
-    c = conn.cursor()
-
-    sql_files = '''CREATE TABLE IF NOT EXISTS files (
-            id INTEGER PRIMARY KEY,
-            filename TEXT NOT NULL,
-            full_path TEXT NOT NULL UNIQUE,
-            filename_encrypted TEXT UNIQUE,
-            mtime TEXT,
-            md5sum_file TEXT,
-            md5sum_encrypted TEXT,
-            tape TEXT,
-            downloaded_date TEXT,
-            packed_date TEXT,
-            written_date TEXT,
-            downloaded INT DEFAULT 0,
-            packed INT DEFAULT 0,
-            written INT DEFAULT 0,
-            verified INT DEFAULT 0     
-            );'''
-
-    sql_tapedevice = '''CREATE TABLE IF NOT EXISTS tapedevices (
-            id INTEGER PRIMARY KEY,
-            label TEXT NOT NULL,
-            full_date TEXT,
-            files_count INT DEFAULT 0,
-            full INT DEFAULT 0
-            );'''
-
-    alternative_file_names = '''CREATE TABLE IF NOT EXISTS alternative_file_names (
-            id INTEGER PRIMARY KEY,
-            filename TEXT NOT NULL UNIQUE,
-            files_id INT NOT NULL,
-            date TEXT 
-            );'''
-
-    try:
-        c.execute(sql_files)
-        c.execute(sql_tapedevice)
-        c.execute(alternative_file_names)
-    except Error as e:
-        print(e)
-
-
-def total_rows(cursor, table_name, print_out=False):
-    """ Returns the total number of rows in the database """
-    cursor.execute('SELECT COUNT(*) FROM {}'.format(table_name))
-    count = cursor.fetchall()
-    if print_out:
-        print('\nTotal rows: {}'.format(count[0][0]))
-    return count[0][0]
-
-
-def table_col_info(cursor, table_name, print_out=False):
-    """ Returns a list of tuples with column informations:
-    (id, name, type, notnull, default_value, primary_key)
-    """
-    cursor.execute('PRAGMA TABLE_INFO({})'.format(table_name))
-    info = cursor.fetchall()
-
-    if print_out:
-        print("\nColumn Info:\nID, Name, Type, NotNull, DefaultVal, PrimaryKey")
-        for col in info:
-            print(col)
-    return info
-
-
-def values_in_col(cursor, table_name, print_out=True):
-    """ Returns a dictionary with columns as keys
-    and the number of not-null entries as associated values.
-    """
-    cursor.execute('PRAGMA TABLE_INFO({})'.format(table_name))
-    info = cursor.fetchall()
-    col_dict = dict()
-    for col in info:
-        col_dict[col[1]] = 0
-    for col in col_dict:
-        cursor.execute('SELECT ({0}) FROM {1} '
-                  'WHERE {0} IS NOT NULL'.format(col, table_name))
-        # In my case this approach resulted in a
-        # better performance than using COUNT
-        number_rows = len(cursor.fetchall())
-        col_dict[col] = number_rows
-    if print_out:
-        print("\nNumber of entries per column:")
-        for i in col_dict.items():
-            print('{}: {}'.format(i[0], i[1]))
-    return col_dict
-
-
-def insert_file(conn, file):
-    """
-    Create a new project into the projects table
-    :param conn:
-    :param file:
-    :return: file id
-    """
-    sql = ''' INSERT INTO files(filename,full_path)
-              VALUES(?,?) '''
-    cur = conn.cursor()
-    cur.execute(sql, file)
-    conn.commit()
-    return cur.lastrowid
-
-
-def check_if_file_exists_by_path(conn, relpath, filename):
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM files WHERE full_path=?", (relpath,))
-    rows_files = cur.fetchall()
-
-    cur2 = conn.cursor()
-    cur2.execute("SELECT * FROM alternative_file_names WHERE filename=?", (filename,))
-    rows_alt_files = cur2.fetchall()
-
-    if len(rows_files) == 0 and len(rows_alt_files) == 0:
-        return False
-    else:
-        return True
-
 
 def get_files_to_be_packed(conn):
     cur = conn.cursor()
@@ -207,36 +84,6 @@ def get_files_to_be_packed(conn):
             '''
     cur.execute(sql)
     return cur.fetchall()
-
-
-def update_file_after_download(conn, task):
-    sql = ''' UPDATE files
-              SET mtime = ?,
-                  downloaded_date = ?,
-                  md5sum_file = ?,
-                  downloaded = ?
-              WHERE id = ?'''
-    cur = conn.cursor()
-    cur.execute(sql, task)
-    conn.commit()
-
-
-def get_files_by_md5(conn, md5):
-    cur = conn.cursor()
-    sql = ''' SELECT id FROM files
-                WHERE md5sum_file=?
-                '''
-    cur.execute(sql, (md5,))
-    return cur.fetchall()
-
-
-def insert_alternative_file_names(conn, file):
-    sql = ''' INSERT INTO alternative_file_names (filename,files_id,date)
-              VALUES(?,?,?) '''
-    cur = conn.cursor()
-    cur.execute(sql, file)
-    conn.commit()
-    return cur.lastrowid
 
 
 def update_filename_enc(conn, filename_enc):
@@ -256,42 +103,6 @@ def update_file_after_pack(conn, task):
                   WHERE id = ?'''
     cur = conn.cursor()
     cur.execute(sql, task)
-    conn.commit()
-
-
-def get_broken_db_download_entry(conn):
-    cur = conn.cursor()
-    sql = ''' SELECT id, full_path FROM files
-                WHERE downloaded=0
-                '''
-    cur.execute(sql)
-    return cur.fetchall()
-
-
-def delete_broken_db_download_entry(conn, id):
-    sql = ''' DELETE from files
-                  WHERE id = ?'''
-    cur = conn.cursor()
-    cur.execute(sql, (id,))
-    conn.commit()
-
-
-def get_broken_db_pack_entry(conn):
-    cur = conn.cursor()
-    sql = ''' SELECT id, filename_encrypted FROM files 
-                WHERE filename_encrypted IS NOT NULL
-                and packed=0
-                '''
-    cur.execute(sql)
-    return cur.fetchall()
-
-
-def update_broken_db_pack_entry(conn, id):
-    sql = ''' UPDATE files
-                 SET filename_encrypted = NULL
-                 WHERE id = ?'''
-    cur = conn.cursor()
-    cur.execute(sql, (id,))
     conn.commit()
 
 
@@ -350,59 +161,60 @@ def get_tapes_tags_from_library(conn):
     return tag_in_tapelib, tags_to_remove_from_library
 
 
-## main functions from here:
+########## main functions from here ##########
 def create_key():
     alphabet = string.ascii_letters + string.digits
     print(''.join(secrets.choice(alphabet) for i in range(128)))
 
 
-def repair_db():
-    conn = create_connection(cfg['database'])
+def init_db():
+    if database.create_tables():
+        logger.info("Tables created")
+        print("Tables created")
 
-    broken_d = get_broken_db_download_entry(conn)
+
+def repair_db():
+    broken_d = database.get_broken_db_download_entry()
     for file in broken_d:
         if os.path.isfile("{}/{}".format(cfg['local-download-dir'], file[1])):
             os.remove("{}/{}".format(cfg['local-download-dir'], file[1]))
 
         logger.info("Fixing Database ID: {}".format(file[0]))
-        delete_broken_db_download_entry(conn, file[0])
+        database.delete_broken_db_download_entry(file[0])
 
     logger.info("Fixed {} messed up download entries".format(len(broken_d)))
     print("Fixed {} messed up download entries".format(len(broken_d)))
 
 
-    broken_p = get_broken_db_pack_entry(conn)
+    broken_p = database.get_broken_db_pack_entry()
     for file in broken_p:
         if os.path.isfile("{}/{}".format(cfg['local-enc-dir'], file[1])):
             os.remove("{}/{}".format(cfg['local-enc-dir'], file[1]))
 
         logger.info("Fixing Database ID: {}".format(file[0]))
-        update_broken_db_pack_entry(conn, file[0])
+        database.update_broken_db_pack_entry(file[0])
 
     logger.info("Fixed {} messed up pack entries".format(len(broken_p)))
     print("Fixed {} messed up pack entries".format(len(broken_p)))
 
 
 def status_db():
-    conn = create_connection(cfg['database'])
-    c = conn.cursor()
-    tables = ['files', 'tapedevices', 'alternative_file_names']
+    tables = database.get_tables()
 
     for i in tables:
         print("")
         print("######### SHOW TABLE {} ##########".format(i))
-        total_rows(c, i, print_out=True)
-        table_col_info(c, i, print_out=True)
-        values_in_col(c, i, print_out=True)
+        database.total_rows(i, print_out=True)
+        database.table_col_info(i, print_out=True)
+        database.values_in_col(i, print_out=True)
 
 
 def backup_db():
-    ## Somethng like this. Then git stuff
-    #conn = create_connection(cfg['database'])
-    #with open('dump.sql', 'w') as f:
-        #for line in con.iterdump():
-            #f.write('%s\n' % line)
-    pass
+    conn = create_connection(cfg['database'])
+    with open('{}/tapebackup-{}.sql'.format(cfg['database-backup-git-path'], int(time.time())), 'w') as f:
+        for line in conn.iterdump():
+            f.write('%s\n' % line)
+    ## TODO: Compare to old git and commit if changed
 
 
 def get_files():
@@ -420,6 +232,10 @@ def get_files():
     print("Found {} entries. Start to process.".format(file_count_total))
     logger.info("Found {} entries. Start to process.".format(file_count_total))
 
+    downloaded_count = 0
+    skipped_count = 0
+    failed_count = 0
+
     for fpath in result:
         fullpath = fpath.decode("UTF-8").rstrip()
         logger.info("Processing {}".format(fullpath))
@@ -428,8 +244,8 @@ def get_files():
         filename = strip_path(fullpath)
         dir = strip_filename(relpath)
 
-        if not check_if_file_exists_by_path(conn, relpath, filename):
-            id = insert_file(conn, (filename, relpath))
+        if not database.check_if_file_exists_by_path(relpath):
+            id = database.insert_file(filename, relpath)
             logger.info("Inserting file into database. Fileid: {}".format(id))
             print("Processing {}".format(fullpath))
 
@@ -446,24 +262,31 @@ def get_files():
                 md5 = md5sum("{}/{}".format(cfg['local-download-dir'], relpath))
                 downloaded_date = int(time.time())
 
-                duplicate = get_files_by_md5(conn, md5)
+                duplicate = database.get_files_by_md5(md5)
                 if len(duplicate) > 0:
                     logger.info("File downloaded with another name. Storing filename in Database: {}".format(filename))
                     print("File downloaded with another name. Storing filename in Database: {}".format(filename))
                     duplicate_id = duplicate[0][0]
-                    inserted_id = insert_alternative_file_names(conn, (filename, duplicate_id, downloaded_date,))
-                    delete_broken_db_download_entry(conn, id)
+                    inserted_id = database.insert_alternative_file_names(filename, relpath, duplicate_id, downloaded_date)
+                    database.delete_broken_db_download_entry(id)
                     os.remove("{}/{}".format(cfg['local-download-dir'], relpath))
+                    skipped_count += 1
                 else:
-                    update_file_after_download(conn, (mtime, downloaded_date, md5, 1, id))
+                    database.update_file_after_download(mtime, downloaded_date, md5, 1, id)
+                    downloaded_count += 1
                     logger.info("Download finished: {}".format(relpath))
             else:
                 logger.warning("Download failed, file: {} error: {}".format(relpath, rsync.stderr.readlines()))
+                failed_count += 1
         else:
             logger.info("File already downloaded, skipping {}".format(relpath))
+            skipped_count += 1
 
         if interrupted:
             break
+
+    print("Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}".format(downloaded_count, skipped_count, failed_count))
+
 
 
 def pack_files():
@@ -588,8 +411,8 @@ if __name__ == "__main__":
     if args.version:
         show_version()
 
-    if not os.path.isfile(cfg['database']) and ( args.command != "initDB" or args.command != "createKey" ):
-        logger.error("Database does not exist: {}".format(cfg['database']))
+    if not os.path.isfile(cfg['database']) and args.command != "initDB" and args.command != "createKey":
+        logger.error("Database does not exist: {}. Please execute 'initDB' first".format(cfg['database']))
         sys.exit(0)
     if ( cfg['enc-key'] == "" or len(cfg['enc-key']) < 128 ) and ( args.command != "initDB" or args.command != "createKey" ):
         logger.error("Encryption key is empty, please use at least 128 Byte Key")
@@ -602,7 +425,10 @@ if __name__ == "__main__":
         logger.error("'local-enc-dir' not specified or does not exist")
         sys.exit(0)
 
+    if args.command == "initDB" and os.path.isfile(cfg['database']):
+        logger.warning("Database file already exists. Just updating!")
 
+    database = Database(cfg)
 
     if args.command == "get":
         get_files()
