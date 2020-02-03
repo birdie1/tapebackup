@@ -198,3 +198,17 @@ class Database:
                   WHERE id = ?'''
         return self.change_entry_in_database(sql, (mtime, downloaded_date, md5, downloaded, id,))
 
+    def get_full_tapes(self, label):
+        sql = ''' SELECT id, label, full FROM tapedevices 
+                WHERE label=?
+                AND full=1
+                '''
+        return self.fetchall_from_database(sql, (label,))
+
+    def get_used_tapes(self, label):
+        sql = ''' SELECT id, label, full FROM tapedevices 
+                WHERE label=?
+                AND full=0
+                '''
+        return self.fetchall_from_database(sql, (label,))
+

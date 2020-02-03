@@ -18,7 +18,8 @@ Tools:
 - openssl
 
 ## Howto use
-
+### What does it currently not support
+- Tapelibraries with more than 1 drive
 
 ## Howto test tapelib from linux
 ### List Tape Devices

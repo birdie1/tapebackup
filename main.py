@@ -16,6 +16,9 @@ import string
 from functools import partial
 from sqlite3 import Error
 from lib.database import Database
+from lib.tapelibrary import Tapelibrary
+
+debug = True
 
 logging.basicConfig(level=logging.INFO,
                     format='[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s',
@@ -31,6 +34,17 @@ logger.addHandler(handler)
 
 files_prefix = os.path.abspath(os.path.dirname(sys.argv[0]))
 
+if debug:
+    cfgfile = "{}/config-debug.yml".format(files_prefix)
+else:
+    cfgfile = "{}/config.yml".format(files_prefix)
+
+with open(cfgfile, 'r') as ymlfile:
+#with open("{}/config-kiste.yml".format(files_prefix), 'r') as ymlfile:
+    cfg = yaml.full_load(ymlfile)
+
+
+
 def signal_handler(signal, frame):
     global interrupted
     global child_process_pid
@@ -44,12 +58,6 @@ def signal_handler(signal, frame):
 signal.signal(signal.SIGINT, signal_handler)
 interrupted = False
 child_process_pid = 0
-
-
-
-with open("{}/config.yml".format(files_prefix), 'r') as ymlfile:
-#with open("{}/config-kiste.yml".format(files_prefix), 'r') as ymlfile:
-    cfg = yaml.full_load(ymlfile)
 
 
 def md5sum(filename):
@@ -106,26 +114,6 @@ def update_file_after_pack(conn, task):
     conn.commit()
 
 
-def get_full_tapes(conn, label):
-    cur = conn.cursor()
-    sql = ''' SELECT id, label, full FROM tapedevices 
-            WHERE label=?
-            AND full=1
-            '''
-    cur.execute(sql, (label,))
-    return cur.fetchall()
-
-
-def get_used_tapes(conn, label):
-    cur = conn.cursor()
-    sql = ''' SELECT id, label, full FROM tapedevices 
-            WHERE label=?
-            AND full=0
-            '''
-    cur.execute(sql, (label,))
-    return cur.fetchall()
-
-
 def strip_base_path(fullpath):
     return os.path.relpath(fullpath, cfg['remote-base-dir'])
 
@@ -136,29 +124,6 @@ def strip_path(path):
 
 def strip_filename(path):
     return os.path.dirname(path)
-
-
-def get_tapes_tags_from_library(conn):
-    logger.info("Retrieving current tape tags in library")
-    commands = ['mtx', '-f', cfg['devices']['tapelib'] , 'status']
-    mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    tag_in_tapelib = []
-    tags_to_remove_from_library = []
-
-    for i in mtx.stdout.readlines():
-        line = i.decode('utf-8').rstrip()
-        if line.find('VolumeTag') != -1:
-            tag = line[line.find('=') + 1:].rstrip().lstrip()
-            if tag in cfg['lto-ignore-tapes']:
-                logger.debug('Ignore Tag {} because exists in ignore list in config'.format(tag))
-            elif len(get_full_tapes(conn, tag)) > 0:
-                logger.debug('Ignore Tag {} because exists in database and is full'.format(tag))
-                tags_to_remove_from_library.append(tag)
-            else:
-                tag_in_tapelib.append(tag)
-
-    logger.info("Got following tags for usage: {}".format(tag_in_tapelib))
-    return tag_in_tapelib, tags_to_remove_from_library
 
 
 ########## main functions from here ##########
@@ -335,7 +300,7 @@ def pack_files():
 
 def write_files():
     conn = create_connection(cfg['database'])
-    tapes, tapes_to_remove = get_tapes_tags_from_library(conn)
+    tapes, tapes_to_remove = tapelibrary.get_tapes_tags_from_library()
     if len(tapes_to_remove) > 0:
         print("These tapes are full, please remove from library: {}".format(tapes_to_remove))
         logger.warning("These tapes are full, please remove from library: {}".format(tapes_to_remove))
@@ -343,6 +308,27 @@ def write_files():
     if len(tapes) == 0:
         logger.error("No free Tapes in Library, but you can remove these full once: {}".format(tapes_to_remove))
         sys.exit(0)
+
+    loaded_tag = tapelibrary.get_current_tag_in_transfer_element()
+    if not loaded_tag:
+        logger.info("Loading tape ({}) into drive".format(tapes[0]))
+        tapelibrary.load_by_tag(tapes[0])
+    else:
+        if loaded_tag not in tapes:
+            logger.info("Wrong tape in drive: unloading!")
+
+            tapelibrary.unload()
+
+            logger.debug("Drive unloaded")
+            logger.info("Loading tape ({}) into drive".format(tapes[0]))
+
+            tapelibrary.load_by_tag(tapes[0])
+
+
+    print("Using tape {} for writing".format(tapes[0]))
+    logger.info("Using tape {} for writing".format(tapes[0]))
+
+    tapelibrary.ltfs()
 
     ## do folder of 1,3tb encrypted filed
     ## see if any angefangene bänder, dann auch kleinere folder machen
@@ -429,6 +415,7 @@ if __name__ == "__main__":
         logger.warning("Database file already exists. Just updating!")
 
     database = Database(cfg)
+    tapelibrary = Tapelibrary(cfg, database)
 
     if args.command == "get":
         get_files()

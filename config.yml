@@ -4,7 +4,9 @@ lto-sizes:
 lto-ignore-tapes:
   - Z00001L5
   - Z00002L5
-
+devices:
+  tapelib: "/dev/sg5"
+  tapedrive: "/dev/st0"
 
 database: "tapebackup.db"
 database-backup-git-path: ""
@@ -13,4 +15,5 @@ remote-base-dir: "/mnt/bigDataStorage"
 remote-download-dir: "/mnt/bigDataStorage/Videos"
 local-download-dir: "test-download-dir"
 local-enc-dir: "test-enc-dir"
+local-tape-mount-dir: "/mnt/tapedrive"
 enc-key: ""
