@@ -86,7 +86,7 @@ def create_connection(db_file):
 
 def get_files_to_be_packed(conn):
     cur = conn.cursor()
-    sql = ''' SELECT id, filename, full_path FROM files 
+    sql = ''' SELECT id, filename, path FROM files 
             WHERE downloaded=1
             AND packed = 0
             '''
