@@ -86,6 +86,9 @@ class Tapelibrary:
 
     def mkltfs(self):
         #mkltfs -d /dev/st0
+
+        #TODO: http://fibrevillage.com/storage/123-mtx-a-native-linux-media-changer-tool
+        # sowas wie loaderinfo und tapeinfo einbauen
         pass
 
 
@@ -118,7 +121,15 @@ class Tapelibrary:
             return True
 
 
+    def loaderinfo(self):
+        commands = ['loaderinfo', '-f', self.config['devices']['tapelib']]
+        loaderinfo = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+        return loaderinfo.stdout.readlines()
 
+    def tapeinfo(self):
+        commands = ['tapeinfo', '-f', self.config['devices']['tapedrive']]
+        tapeinfo = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+        return tapeinfo.stdout.readlines()
 

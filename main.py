@@ -18,7 +18,7 @@ from sqlite3 import Error
 from lib.database import Database
 from lib.tapelibrary import Tapelibrary
 
-debug = True
+debug = False
 
 logging.basicConfig(level=logging.INFO,
                     format='[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s',
@@ -298,6 +298,17 @@ def pack_files():
     # openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -in test.enc -out test.mp4
 
 
+def tapeinfo():
+    print("Loaderinfo from Device {}:".format(cfg['devices']['tapelib']))
+    for i in tapelibrary.loaderinfo():
+        print("    {}".format(i.decode('utf-8').rstrip()))
+
+    print("")
+    print("Tapeinfo from Device {}:".format(cfg['devices']['tapedrive']))
+    for i in tapelibrary.tapeinfo():
+        print("    {}".format(i.decode('utf-8').rstrip()))
+
+
 def write_files():
     conn = create_connection(cfg['database'])
     tapes, tapes_to_remove = tapelibrary.get_tapes_tags_from_library()
@@ -334,6 +345,7 @@ def write_files():
     ## see if any angefangene bänder, dann auch kleinere folder machen
     ##get_used_tapes(conn, tag)
 
+    ## Schreibe eine zusammenfasuung welche dateien unter welchem dateinamen sind mit auf das laufwerk (ebenfalls verschlüsselt!)
     ##do more stuff here
 
 def restore_file():
@@ -378,6 +390,8 @@ subparser_dbstats = subparsers.add_parser('statusDB', help='Show SQLite Informat
 #subsubparser_db = subparser_db.add_subparsers(title='Commands', dest='command')
 #subsubparser_db.add_parser('init', help='Initialize SQLite DB')
 
+subparser_tape = subparsers.add_parser('tapeinfo', help='Get Informations about Tapes and Devices')
+
 subparser_key = subparsers.add_parser('createKey', help='Create encryption key')
 
 subparser_restore = subparsers.add_parser('restore', help='Restore File from Tape')
@@ -421,6 +435,8 @@ if __name__ == "__main__":
         get_files()
     elif args.command == "pack":
         pack_files()
+    elif args.command == "tapeinfo":
+        tapeinfo()
     elif args.command == "write":
         write_files()
     elif args.command == "initDB":
