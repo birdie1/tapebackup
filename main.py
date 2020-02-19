@@ -304,7 +304,7 @@ def write_files():
     tapelibrary.ltfs()
 
     ## Write used tape into database
-    database.write_tape_into_database(tapes[0])
+    database.write_tape_into_database(next_tape)
 
     st = os.statvfs(cfg['local-tape-mount-dir'])
     logger.info("Tape: Used: {} ({} GB), Free: {} ({} GB), Total: {} ({} GB)".format(
