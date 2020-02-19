@@ -20,6 +20,8 @@ from sqlite3 import Error
 from lib.database import Database
 from lib.tapelibrary import Tapelibrary
 
+pname = "Tapebackup"
+pversion = '0.1.0'
 debug = False
 
 logging.basicConfig(level=logging.DEBUG,
@@ -95,6 +97,9 @@ def test_backup_pieces(filelist, percent):
 
 
 ########## main functions from here ##########
+def show_version():
+    print("{}: Version {}".format(pname, pversion))
+
 def create_key():
     alphabet = string.ascii_letters + string.digits
     print(''.join(secrets.choice(alphabet) for i in range(128)))
@@ -205,18 +210,19 @@ def get_files():
                 else:
                     database.update_file_after_download(mtime, downloaded_date, md5, 1, id)
                     downloaded_count += 1
-                    logger.info("Download finished: {}".format(relpath))
+                    logger.debug("Download finished: {}".format(relpath))
             else:
                 logger.warning("Download failed, file: {} error: {}".format(relpath, rsync.stderr.readlines()))
                 failed_count += 1
         else:
-            logger.info("File already downloaded, skipping {}".format(relpath))
+            logger.debug("File already downloaded, skipping {}".format(relpath))
             skipped_count += 1
 
         if interrupted:
             break
 
-    print("Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}".format(downloaded_count, skipped_count, failed_count))
+    logger.info("Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}".format(downloaded_count, skipped_count, failed_count))
+    #print("Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}".format(downloaded_count, skipped_count, failed_count))
 
 
 def pack_files():
@@ -233,8 +239,7 @@ def pack_files():
         id = file[0]
         filepath = file[2]
 
-        logger.info("Processing fileid: {}".format(id))
-        print("Processing {}".format(file[1]))
+        logger.info("Processing: id: {}, filename: {}".format(id, file[1]))
 
         filename_enc_helper = ''.join(secrets.choice(alphabet) for i in range(32))
         filename_enc = "{}.enc".format(filename_enc_helper)
@@ -356,6 +361,7 @@ def write_files():
             ## DELETE all Files, that has been transfered to tape
             for i in database.get_files_by_tapelabel(next_tape):
                 if os.path.exists("{}/{}".format(cfg['local-enc-dir'], i[1])):
+                    logger.info("Deleting encrypted file: {} ({})".format(i[3], i[1]))
                     os.remove("{}/{}".format(cfg['local-enc-dir'], i[1]))
 
             ## Unload tape
@@ -388,7 +394,7 @@ def verify_tape():
     ##       - Verify Tapebackup Database file
     pass
 
-parser = argparse.ArgumentParser(description="Tape Backup from Remote Server to Tape Library by chunks")
+parser = argparse.ArgumentParser(description="Tape Backup from Remote or local Server to Tape Library by chunks")
 parser.add_argument("--version", action="store_true", help="Show version and exit")
 
 group01 = parser.add_argument_group()
@@ -449,6 +455,7 @@ if __name__ == "__main__":
 
     if args.version:
         show_version()
+        sys.exit(0)
 
     if not os.path.isfile(cfg['database']) and args.command != "initDB" and args.command != "createKey":
         logger.error("Database does not exist: {}. Please execute 'initDB' first".format(cfg['database']))

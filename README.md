@@ -1,7 +1,11 @@
 ## Description
-This program downloads files via SSH/Rsync from remote server, encrypt them using openssl and stores them on tape devices. It stores processed files and tapes into sqlite database.
+This program downloads files via SSH/Rsync from remote server, encrypt them using openssl and stores them on tape devices.
+
+It stores all necessary information into a SQLite database. It stores original filenames, encrypted filenames, hashsums, tapedevices and Timestamps of operations
 
 **Caution**: It will not detect changes on same filename. Use it only for non changing files, like mediafiles or pictures.
+
+
 ## Requirements
 It is written in Python 3.
 
@@ -10,16 +14,47 @@ Kernel Modules:
 - st
 
 Tools: 
-- mt (Arch mt-st-git)
+- mt (Archlinux mt-st-git)
 - mtx
 - LTFS
   - [IBM Drives] OpenLTFS
   - [HP/HPE Drives] HPE StoreOpen und Linear Tape File System (LTFS) Software https://buy.hpe.com/de/de/storage/storage-software/storage-device-management-software/storeever-tape-device-management-software/hpe-storeopen-linear-tape-file-system-ltfs-software/p/4249221
 - openssl
+- rsync
+- sqlite
 
-## Howto use
-### What does it currently not support
-- Tapelibraries with more than 1 drive
+### Known limitations
+- Tapelibraries with more than 1 drive possibly not working (I have no media to test with)
+- Verify backup by md5sum not yet implemented
+- Restorin files automaticaly from tapes not yet implemented
+
+
+## Usage
+### Change the configuration file!
+In order to use the tapebackup script, you need to modify the config.yml file to your needs.
+
+### Download Files from remote server
+To download files via rsync from remote server execute:
+```
+./main.py get
+```
+
+### Encrypt files with openssl
+To encrypt files with openssl execute:
+```
+./main.py pack
+```
+It will create generated names with will to saved in the database.
+
+### Write encrypted files to tape
+To write the encrypted files to tape, execute the following:
+```
+./main.py write
+```
+It will find unused tapes in library and write data to it. If there are no free tapes, or tape is full, it will inform you.
+
+### More functions
+There are many more function around database or verifying files. Use `./main.py --help` to see all functions.
 
 ## Howto test tapelib from linux
 ### List Tape Devices
