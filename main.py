@@ -13,6 +13,8 @@ import subprocess
 import hashlib
 import secrets
 import string
+import random
+import shutil
 from functools import partial
 from sqlite3 import Error
 from lib.database import Database
@@ -20,14 +22,14 @@ from lib.tapelibrary import Tapelibrary
 
 debug = False
 
-logging.basicConfig(level=logging.INFO,
+logging.basicConfig(level=logging.DEBUG,
                     format='[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S',
                     filename='main.log')
 logger = logging.getLogger()
 
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.WARNING)
+handler.setLevel(logging.INFO)
 formatter = logging.Formatter('[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
@@ -53,7 +55,7 @@ def signal_handler(signal, frame):
         os.kill(child_process_pid, signal)
     else:
         interrupted = True
-        print('I will stop after current Operation!')
+        print(' I will stop after current Operation!')
 
 signal.signal(signal.SIGINT, signal_handler)
 interrupted = False
@@ -68,52 +70,6 @@ def md5sum(filename):
     return d.hexdigest()
 
 
-def create_connection(db_file):
-    """ create a database connection to the SQLite database
-        specified by the db_file
-    :param db_file: database file
-    :return: Connection object or None
-    """
-    conn = None
-    try:
-        conn = sqlite3.connect(db_file)
-    except Error as e:
-        print(e)
-
-    return conn
-
-
-
-def get_files_to_be_packed(conn):
-    cur = conn.cursor()
-    sql = ''' SELECT id, filename, path FROM files 
-            WHERE downloaded=1
-            AND packed = 0
-            '''
-    cur.execute(sql)
-    return cur.fetchall()
-
-
-def update_filename_enc(conn, filename_enc):
-    sql = ''' UPDATE files
-              SET filename_encrypted = ?
-              WHERE id = ?'''
-    cur = conn.cursor()
-    cur.execute(sql, filename_enc)
-    conn.commit()
-
-
-def update_file_after_pack(conn, task):
-    sql = ''' UPDATE files
-                  SET packed_date = ?,
-                      md5sum_encrypted = ?,
-                      packed = ?
-                  WHERE id = ?'''
-    cur = conn.cursor()
-    cur.execute(sql, task)
-    conn.commit()
-
-
 def strip_base_path(fullpath):
     return os.path.relpath(fullpath, cfg['remote-base-dir'])
 
@@ -124,6 +80,18 @@ def strip_path(path):
 
 def strip_filename(path):
     return os.path.dirname(path)
+
+
+def test_backup_pieces(filelist, percent):
+    filecount_to_test = int(len(filelist) * percent / 100)
+    logger.info("Testing {} files md5sum".format(filecount_to_test))
+    for i in range(filecount_to_test):
+        index = random.randrange(0, len(filelist))
+        logger.info("Testing md5sum of file {}".format(filelist[index][3]))
+        if md5sum("{}/{}".format(cfg['local-tape-mount-dir'], filelist[index][1])) != filelist[index][2]:
+            return False
+
+    return True
 
 
 ########## main functions from here ##########
@@ -175,7 +143,6 @@ def status_db():
 
 
 def backup_db():
-    conn = create_connection(cfg['database'])
     with open('{}/tapebackup-{}.sql'.format(cfg['database-backup-git-path'], int(time.time())), 'w') as f:
         for line in conn.iterdump():
             f.write('%s\n' % line)
@@ -192,7 +159,6 @@ def get_files():
     result = ssh.stdout.readlines()
     logger.info("Got file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-download-dir']))
 
-    conn = create_connection(cfg['database'])
     file_count_total = len(result)
     print("Found {} entries. Start to process.".format(file_count_total))
     logger.info("Found {} entries. Start to process.".format(file_count_total))
@@ -253,7 +219,6 @@ def get_files():
     print("Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}".format(downloaded_count, skipped_count, failed_count))
 
 
-
 def pack_files():
     global interrupted
     global child_process_pid
@@ -261,7 +226,7 @@ def pack_files():
     logger.info("Starting pack files job")
 
     conn = create_connection(cfg['database'])
-    files = get_files_to_be_packed(conn)
+    files = database.get_files_to_be_packed()
     alphabet = string.ascii_letters + string.digits
 
     for file in files:
@@ -274,7 +239,7 @@ def pack_files():
         filename_enc_helper = ''.join(secrets.choice(alphabet) for i in range(32))
         filename_enc = "{}.enc".format(filename_enc_helper)
 
-        update_filename_enc(conn, (filename_enc, id))
+        database.update_filename_enc(filename_enc, id)
 
         command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', '{}/{}'.format(cfg['local-download-dir'], filepath), '-out', '{}/{}'.format(cfg['local-enc-dir'], filename_enc), '-k', cfg['enc-key']]
         openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
@@ -283,7 +248,7 @@ def pack_files():
         if len(openssl.stderr.readlines()) == 0:
             md5 = md5sum("{}/{}".format(cfg['local-enc-dir'], filename_enc))
             packed_date = int(time.time())
-            update_file_after_pack(conn, (packed_date, md5, 1, id))
+            database.update_file_after_pack(packed_date, md5, id)
 
             os.remove("{}/{}".format(cfg['local-download-dir'], filepath))
         else:
@@ -308,9 +273,14 @@ def tapeinfo():
     for i in tapelibrary.tapeinfo():
         print("    {}".format(i.decode('utf-8').rstrip()))
 
+    print("")
+    print("MTX Info from Device {}:".format(cfg['devices']['tapelib']))
+    for i in tapelibrary.mtxinfo():
+        print("    {}".format(i.decode('utf-8').rstrip()))
+
 
 def write_files():
-    conn = create_connection(cfg['database'])
+    recursive = False
     tapes, tapes_to_remove = tapelibrary.get_tapes_tags_from_library()
     if len(tapes_to_remove) > 0:
         print("These tapes are full, please remove from library: {}".format(tapes_to_remove))
@@ -320,37 +290,103 @@ def write_files():
         logger.error("No free Tapes in Library, but you can remove these full once: {}".format(tapes_to_remove))
         sys.exit(0)
 
-    loaded_tag = tapelibrary.get_current_tag_in_transfer_element()
-    if not loaded_tag:
-        logger.info("Loading tape ({}) into drive".format(tapes[0]))
-        tapelibrary.load_by_tag(tapes[0])
-    else:
-        if loaded_tag not in tapes:
-            logger.info("Wrong tape in drive: unloading!")
+    next_tape = tapes.pop(0)
 
-            tapelibrary.unload()
+    logger.info("Using tape {} for writing".format(next_tape))
 
-            logger.debug("Drive unloaded")
-            logger.info("Loading tape ({}) into drive".format(tapes[0]))
-
-            tapelibrary.load_by_tag(tapes[0])
-
-
-    print("Using tape {} for writing".format(tapes[0]))
-    logger.info("Using tape {} for writing".format(tapes[0]))
-
+    ## Load tape, mount and maybe format tapedevice
+    tapelibrary.load(next_tape)
     tapelibrary.ltfs()
 
-    ## do folder of 1,3tb encrypted filed
-    ## see if any angefangene bänder, dann auch kleinere folder machen
-    ##get_used_tapes(conn, tag)
+    ## Write used tape into database
+    database.write_tape_into_database(tapes[0])
 
-    ## Schreibe eine zusammenfasuung welche dateien unter welchem dateinamen sind mit auf das laufwerk (ebenfalls verschlüsselt!)
-    ##do more stuff here
+    st = os.statvfs(cfg['local-tape-mount-dir'])
+    logger.info("Tape: Used: {} ({} GB), Free: {} ({} GB), Total: {} ({} GB)".format(
+                                                            (st.f_blocks - st.f_bfree) * st.f_frsize,
+                                                            int((st.f_blocks - st.f_bfree) * st.f_frsize / 1024 / 1024 / 1024),
+                                                            (st.f_bavail * st.f_frsize),
+                                                            int((st.f_bavail * st.f_frsize) / 1024 / 1024 / 1024),
+                                                            (st.f_blocks * st.f_frsize),
+                                                            int((st.f_blocks * st.f_frsize) / 1024 / 1024 / 1024)
+    ))
+
+    files = database.get_files_to_be_written()
+    for file in files:
+        id = file[0]
+        filename = file[1]
+        md5 = file[2]
+        orig_filename = file[3]
+
+        ##Get free tapesize, filesize and compare with a space blocker of 1GB and test 5% of the written media
+        st = os.statvfs(cfg['local-tape-mount-dir'])
+        free = (st.f_bavail * st.f_frsize)
+        filesize = os.path.getsize("{}/{}".format(cfg['local-enc-dir'], filename))
+
+        if filesize > ( free - 1048576 ):
+            logger.warning("Tape is full: I am testing now a few media, writing summary into database and unloading tape")
+
+            if not test_backup_pieces(database.get_files_by_tapelabel(next_tape), 5):
+                logger.error("md5sum on tape not equal to database. Stopping everything. Need manual check of the tape!")
+                ## TODO: Mache irgendwas vernünftiges!
+                sys.exit(1)
+
+            database.mark_tape_as_full(next_tape, int(time.time()))
+
+            ## WRITE Database encrypted on tape
+            dt = int(time.time())
+            command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', cfg['database'], '-out', '{}/tapebackup_{}.db.enc'.format(cfg['local-tape-mount-dir'], dt), '-k', cfg['enc-key']]
+            openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if len(openssl.stderr.readlines()) > 0:
+                logger.error("Writing Database to Tape failed")
+                sys.exit(1)
+
+            ## WRITE Textfile containing (encryped_name|original_fullpath) of all files encrypted to tape
+            dump = database.dump_filenames_to_for_tapes(next_tape)
+            with open('tapebackup_{}.txt'.format(dt), 'w') as f:
+                for line in dump:
+                    f.write('"{}";"{}";"{}"\n'.format(line[0], line[1], line[2]))
+            command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', 'tapebackup_{}.txt'.format(dt), '-out', '{}/tapebackup_{}.txt.enc'.format(cfg['local-tape-mount-dir'], dt), '-k', cfg['enc-key']]
+            openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if len(openssl.stderr.readlines()) > 0:
+                logger.error("Writing Textfile to Tape failed")
+                sys.exit(1)
+            os.remove('tapebackup_{}.txt'.format(dt))
+
+            ## DELETE all Files, that has been transfered to tape
+            for i in database.get_files_by_tapelabel(next_tape):
+                if os.path.exists("{}/{}".format(cfg['local-enc-dir'], i[1])):
+                    os.remove("{}/{}".format(cfg['local-enc-dir'], i[1]))
+
+            ## Unload tape
+            tapelibrary.unload()
+            recursive = True
+            break
+
+        logger.info("Writing file to tape: {}".format(orig_filename))
+        shutil.copy2("{}/{}".format(cfg['local-enc-dir'], filename), "{}/".format(cfg['local-tape-mount-dir']))
+        database.update_file_after_write(int(time.time()), next_tape, id)
+
+        if interrupted:
+            break
+
+    #if recursive:
+    #    write_files()
+
 
 def restore_file():
+    ## TODO: Restore file by given name, path or encrypted name
     pass
 
+def verify_file():
+    ## TODO: Verify random or by given File
+    pass
+
+def verify_tape():
+    ## TODO: - Verify random or by given Tape
+    ##       - Verify filesystem and my be a few files
+    ##       - Verify Tapebackup Database file
+    pass
 
 parser = argparse.ArgumentParser(description="Tape Backup from Remote Server to Tape Library by chunks")
 parser.add_argument("--version", action="store_true", help="Show version and exit")
@@ -394,10 +430,13 @@ subparser_tape = subparsers.add_parser('tapeinfo', help='Get Informations about 
 
 subparser_key = subparsers.add_parser('createKey', help='Create encryption key')
 
+subparser_verify = subparsers.add_parser('verify', help='Verify Files (random or given filename) on Tape')
 subparser_restore = subparsers.add_parser('restore', help='Restore File from Tape')
 subparser_restore.add_argument("-f", "--file", type=str, help="Specify filename or path/file")
 
 if __name__ == "__main__":
+    ## TODO: Implement possibiblity, to overrride config options by giving commandline arguments
+    ##      -> change for example data path (local-download-dir)
 
     args = parser.parse_args()
 
@@ -452,6 +491,9 @@ if __name__ == "__main__":
             logger.error("'database-backup-git-path' key is empty, please specify git path")
             sys.exit(0)
         backup_db()
+    elif args.command == "verify":
+        verify_file()
+        ## verify_tape()
     elif args.command == "restore":
         restore_file()
 

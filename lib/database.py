@@ -29,15 +29,18 @@ class Database:
                     downloaded INT DEFAULT 0,
                     packed INT DEFAULT 0,
                     written INT DEFAULT 0,
-                    verified INT DEFAULT 0     
+                    verified_count INT DEFAULT 0,
+                    verified_last TEXT 
                     );'''
 
         sql_tapedevice = '''CREATE TABLE IF NOT EXISTS tapedevices (
                     id INTEGER PRIMARY KEY,
-                    label TEXT NOT NULL,
+                    label TEXT NOT NULL UNIQUE,
                     full_date TEXT,
                     files_count INT DEFAULT 0,
-                    full INT DEFAULT 0
+                    full INT DEFAULT 0,
+                    verified_count INT DEFAULT 0,
+                    verified_last TEXT
                     );'''
 
         sql_alternative_file_names = '''CREATE TABLE IF NOT EXISTS alternative_file_names (
@@ -75,7 +78,6 @@ class Database:
         self.cursor.execute(sql, data)
         self.conn.commit()
         return self.cursor.lastrowid
-
 
 
     def get_tables(self):
@@ -198,6 +200,27 @@ class Database:
                   WHERE id = ?'''
         return self.change_entry_in_database(sql, (mtime, downloaded_date, md5, downloaded, id,))
 
+    def get_files_to_be_packed(self):
+        sql = ''' SELECT id, filename, path FROM files 
+                WHERE downloaded=1
+                AND packed = 0
+                '''
+        return self.fetchall_from_database(sql)
+
+    def update_filename_enc(self, filename_enc, id):
+        sql = ''' UPDATE files
+                  SET filename_encrypted = ?
+                  WHERE id = ?'''
+        return self.change_entry_in_database(sql, (filename_enc, id,))
+
+    def update_file_after_pack(self, packed_date, md5sum_encrypted):
+        sql = ''' UPDATE files
+                      SET packed_date = ?,
+                          md5sum_encrypted = ?,
+                          packed = 1
+                      WHERE id = ?'''
+        return self.change_entry_in_database(sql, (packed_date, md5sum_encrypted, id,))
+
     def get_full_tapes(self, label):
         sql = ''' SELECT id, label, full FROM tapedevices 
                 WHERE label=?
@@ -210,5 +233,57 @@ class Database:
                 WHERE label=?
                 AND full=0
                 '''
+        return self.fetchall_from_database(sql, (label,))
+
+    def write_tape_into_database(self, label):
+        sql = ''' INSERT OR IGNORE INTO tapedevices (label)
+                          VALUES(?) '''
+        return self.change_entry_in_database(sql, (label,))
+
+
+    def get_files_to_be_written(self):
+        sql = ''' SELECT id, filename_encrypted, md5sum_encrypted, filename FROM files 
+                    WHERE downloaded=1
+                    AND packed=1
+                    AND written=0
+                    '''
+        return self.fetchall_from_database(sql)
+
+    def get_filecount_by_tapelabel(self, label):
+        sql = ''' SELECT count(*) FROM files 
+                    WHERE tape = ?
+                    '''
+        return self.fetchall_from_database(sql, (label,))
+
+
+    def get_files_by_tapelabel(self, label):
+        sql = ''' SELECT id, filename_encrypted, md5sum_encrypted, filename FROM files 
+                    WHERE tape = ?
+                    '''
+        return self.fetchall_from_database(sql, (label,))
+
+
+    def mark_tape_as_full(self, label, dt):
+        count = self.get_filecount_by_tapelabel(label)[0][0]
+        sql = ''' UPDATE tapedevices 
+                  SET full_date = ?,
+                      files_count = ?,
+                      full = 1
+                  WHERE label = ? '''
+        return self.change_entry_in_database(sql, (dt, count, label,))
+
+
+    def update_file_after_write(self, dt, label, id):
+        sql = ''' UPDATE files
+                          SET written_date = ?,
+                              tape = ?,
+                              written = 1
+                          WHERE id = ?'''
+        return self.change_entry_in_database(sql, (dt, label, id,))
+
+    def dump_filenames_to_for_tapes(self, label):
+        sql = ''' SELECT id, path, filename_encrypted FROM files 
+                            WHERE tape = ?
+                            '''
         return self.fetchall_from_database(sql, (label,))
 

@@ -12,7 +12,7 @@ class Tapelibrary:
         self.database = database
 
     def get_tapes_tags_from_library(self):
-        logger.info("Retrieving current tape tags in library")
+        logger.debug("Retrieving current tape tags in library")
         commands = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
         mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         tag_in_tapelib = []
@@ -30,7 +30,7 @@ class Tapelibrary:
                 else:
                     tag_in_tapelib.append(tag)
 
-        logger.info("Got following tags for usage: {}".format(tag_in_tapelib))
+        logger.debug("Got following tags for usage: {}".format(tag_in_tapelib))
         return tag_in_tapelib, tags_to_remove_from_library
 
     def get_current_tag_in_transfer_element(self):
@@ -68,6 +68,14 @@ class Tapelibrary:
             logger.info("Tape {} loaded successfully".format(tag))
 
     def unload(self):
+        if os.path.ismount(self.config['local-tape-mount-dir']):
+            logger.debug("Unmounting: {}".format(self.config['local-tape-mount-dir']))
+            commands = ['umount', self.config['local-tape-mount-dir']]
+            umount = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if len(umount.stderr.readlines()) > 0:
+                logger.error("Cant unmount, giving up")
+                sys.exit(1)
+
         commands = ['mtx', '-f', self.config['devices']['tapelib'], 'unload']
         mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -77,6 +85,23 @@ class Tapelibrary:
         else:
             logger.info("Drive unloaded loaded successfully")
 
+    def load(self, next_tape):
+        loaded_tag = self.get_current_tag_in_transfer_element()
+
+        if not loaded_tag:
+            logger.info("Loading tape ({}) into drive".format(next_tape))
+            self.load_by_tag(next_tape)
+        else:
+            if loaded_tag != next_tape:
+                logger.info("Wrong tape in drive: unloading!")
+
+                self.unload()
+
+                logger.debug("Drive unloaded")
+                logger.info("Loading tape ({}) into drive".format(next_tape))
+
+                self.load_by_tag(next_tape)
+
     def ltfs(self):
         mounted = self.mount_ltfs()
         if not mounted:
@@ -85,16 +110,16 @@ class Tapelibrary:
 
 
     def mkltfs(self):
-        #mkltfs -d /dev/st0
+        commands = ['mkltfs', '-d', self.config['devices']['tapedrive']]
+        ltfs = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        std_out, std_err = ltfs.communicate()
 
-        #TODO: http://fibrevillage.com/storage/123-mtx-a-native-linux-media-changer-tool
-        # sowas wie loaderinfo und tapeinfo einbauen
-        pass
+        logger.info("Formating Tape: {}".format(std_out))
 
 
     def mount_ltfs(self):
         if os.path.ismount(self.config['local-tape-mount-dir']):
-            logger.info('LTFS already mounted, skip mounting')
+            logger.debug('LTFS already mounted, skip mounting')
             return True
 
         commands = [ 'ltfs', self.config['local-tape-mount-dir'] ]
@@ -133,3 +158,8 @@ class Tapelibrary:
 
         return tapeinfo.stdout.readlines()
 
+    def mtxinfo(self):
+        commands = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
+        mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        return mtx.stdout.readlines()
