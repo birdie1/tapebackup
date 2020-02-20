@@ -18,7 +18,7 @@ from lib.tools import Tools
 
 pname = "Tapebackup"
 pversion = '0.1.0'
-debug = True
+debug = False
 
 logging.basicConfig(level=logging.DEBUG,
                     format='[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s',
@@ -31,17 +31,6 @@ handler.setLevel(logging.INFO)
 formatter = logging.Formatter('[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-
-files_prefix = os.path.abspath(os.path.dirname(sys.argv[0]))
-
-if debug:
-    cfgfile = "{}/config-debug.yml".format(files_prefix)
-else:
-    cfgfile = "{}/config.yml".format(files_prefix)
-
-with open(cfgfile, 'r') as ymlfile:
-#with open("{}/config-kiste.yml".format(files_prefix), 'r') as ymlfile:
-    cfg = yaml.full_load(ymlfile)
 
 
 
@@ -76,6 +65,55 @@ def test_backup_pieces(filelist, percent):
 def show_version():
     print("{}: Version {}".format(pname, pversion))
 
+def config_override_from_cmd():
+    if args.database is not None:
+        cfg['database'] = args.database
+    if args.data_dir is not None:
+        cfg['local-data-dir'] = args.data_dir
+    if args.server is not None:
+        cfg['remote-server'] = args.server
+    if args.tape_mount is not None:
+        cfg['local-tape-mount-dir'] = args.tape_mount
+    if args.tapedrive is not None:
+        cfg['devices']['tapedrive'] = args.tapedrive
+    if args.tapelib is not None:
+        cfg['devices']['tapelib'] = args.tapelib
+
+
+def print_debug_info():
+    print("Command: {}".format(args.command))
+    print("")
+    print("CONFIG ARGUMENTS")
+    print("Tapelib: {}".format(cfg['devices']['tapelib']))
+    print("Tapedrive: {}".format(cfg['devices']['tapedrive']))
+    print("Database: {}".format(cfg['database']))
+    print("Database Backup Path: {}".format(cfg['database-backup-git-path']))
+    print("Remote Server: {}".format(cfg['remote-server']))
+    print("Remote Base Directory: {}".format(cfg['remote-base-dir']))
+    print("Remote Data Directory: {}".format(cfg['remote-data-dir']))
+    print("Local Data Directory: {}".format(cfg['local-data-dir']))
+    print("Local Encryption Directory: {}".format(cfg['local-enc-dir']))
+    print("Local Tape Mount Directory: {}".format(cfg['local-tape-mount-dir']))
+    print("Encryption Key: {}".format(cfg['enc-key']))
+    i = 0
+    for j in cfg['lto-ignore-tapes']:
+        print("Ignored Tape {}, Label: {}".format(i, j))
+        i += 1
+    print("")
+    print("CMD ARGUMENTS")
+    print("--config: {}".format(args.config))
+    print("--data-dir: {}".format(args.data_dir))
+    print("--database: {}".format(args.database))
+    print("--debug: {}".format(args.debug))
+    print("--info: {}".format(args.info))
+    print("--quiet: {}".format(args.quiet))
+    print("--server: {}".format(args.server))
+    print("--tape-mount: {}".format(args.tape_mount))
+    print("--tapedrive: {}".format(args.tapedrive))
+    print("--tapelib: {}".format(args.tapelib))
+    print("--version: {}".format(args.version))
+
+
 def create_key():
     alphabet = string.ascii_letters + string.digits
     print(''.join(secrets.choice(alphabet) for i in range(128)))
@@ -90,8 +128,8 @@ def init_db():
 def repair_db():
     broken_d = database.get_broken_db_download_entry()
     for file in broken_d:
-        if os.path.isfile("{}/{}".format(cfg['local-download-dir'], file[1])):
-            os.remove("{}/{}".format(cfg['local-download-dir'], file[1]))
+        if os.path.isfile("{}/{}".format(cfg['local-data-dir'], file[1])):
+            os.remove("{}/{}".format(cfg['local-data-dir'], file[1]))
 
         logger.info("Fixing Database ID: {}".format(file[0]))
         database.delete_broken_db_download_entry(file[0])
@@ -124,9 +162,7 @@ def status_db():
 
 
 def backup_db():
-    with open('{}/tapebackup-{}.sql'.format(cfg['database-backup-git-path'], int(time.time())), 'w') as f:
-        for line in conn.iterdump():
-            f.write('%s\n' % line)
+    database.export('{}/tapebackup-{}.sql'.format(cfg['database-backup-git-path'], int(time.time())))
     ## TODO: Compare to old git and commit if changed
 
 
@@ -134,11 +170,11 @@ def get_files():
     global interrupted
     global child_process_pid
 
-    logger.info("Retrieving file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-download-dir']))
-    commands = ['ssh', cfg['remote-server'], 'find "{}" -type f'.format(cfg['remote-download-dir'])]
+    logger.info("Retrieving file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
+    commands = ['ssh', cfg['remote-server'], 'find "{}" -type f'.format(cfg['remote-data-dir'])]
     ssh = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     result = ssh.stdout.readlines()
-    logger.info("Got file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-download-dir']))
+    logger.info("Got file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
 
     file_count_total = len(result)
     print("Found {} entries. Start to process.".format(file_count_total))
@@ -161,17 +197,17 @@ def get_files():
             logger.info("Inserting file into database. Fileid: {}".format(id))
             print("Processing {}".format(fullpath))
 
-            os.makedirs("{}/{}".format(cfg['local-download-dir'], dir), exist_ok=True)
+            os.makedirs("{}/{}".format(cfg['local-data-dir'], dir), exist_ok=True)
 
-            command = ['rsync', '--protect-args', '-ae', 'ssh', '{}:{}'.format(cfg['remote-server'], fullpath), '{}/{}'.format(cfg['local-download-dir'], dir)]
+            command = ['rsync', '--protect-args', '-ae', 'ssh', '{}:{}'.format(cfg['remote-server'], fullpath), '{}/{}'.format(cfg['local-data-dir'], dir)]
             rsync = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
             child_process_pid = rsync.pid
             #print(rsync.args)
             #print(rsync.stderr.readlines())
 
             if len(rsync.stderr.readlines()) == 0:
-                mtime = int(os.path.getmtime("{}/{}".format(cfg['local-download-dir'], relpath)))
-                md5 = tools.md5sum("{}/{}".format(cfg['local-download-dir'], relpath))
+                mtime = int(os.path.getmtime("{}/{}".format(cfg['local-data-dir'], relpath)))
+                md5 = tools.md5sum("{}/{}".format(cfg['local-data-dir'], relpath))
                 downloaded_date = int(time.time())
 
                 duplicate = database.get_files_by_md5(md5)
@@ -181,7 +217,7 @@ def get_files():
                     duplicate_id = duplicate[0][0]
                     inserted_id = database.insert_alternative_file_names(filename, relpath, duplicate_id, downloaded_date)
                     database.delete_broken_db_download_entry(id)
-                    os.remove("{}/{}".format(cfg['local-download-dir'], relpath))
+                    os.remove("{}/{}".format(cfg['local-data-dir'], relpath))
                     skipped_count += 1
                 else:
                     database.update_file_after_download(mtime, downloaded_date, md5, 1, id)
@@ -207,7 +243,6 @@ def pack_files():
 
     logger.info("Starting pack files job")
 
-    conn = create_connection(cfg['database'])
     files = database.get_files_to_be_packed()
     alphabet = string.ascii_letters + string.digits
 
@@ -222,7 +257,7 @@ def pack_files():
 
         database.update_filename_enc(filename_enc, id)
 
-        command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', '{}/{}'.format(cfg['local-download-dir'], filepath), '-out', '{}/{}'.format(cfg['local-enc-dir'], filename_enc), '-k', cfg['enc-key']]
+        command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', '{}/{}'.format(cfg['local-data-dir'], filepath), '-out', '{}/{}'.format(cfg['local-enc-dir'], filename_enc), '-k', cfg['enc-key']]
         openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
         child_process_pid = openssl.pid
 
@@ -231,7 +266,7 @@ def pack_files():
             packed_date = int(time.time())
             database.update_file_after_pack(packed_date, md5, id)
 
-            os.remove("{}/{}".format(cfg['local-download-dir'], filepath))
+            os.remove("{}/{}".format(cfg['local-data-dir'], filepath))
         else:
             logger.warning("pack file failed, file: {} error: {}".format(id, openssl.stderr.readlines()))
 
@@ -370,34 +405,29 @@ def verify_tape():
     ##       - Verify Tapebackup Database file
     pass
 
-parser = argparse.ArgumentParser(description="Tape Backup from Remote or local Server to Tape Library by chunks")
-parser.add_argument("--version", action="store_true", help="Show version and exit")
+parser = argparse.ArgumentParser(description="Tape backup from remote or local server to tape library")
+parser.add_argument("-v", "--version", action="store_true", help="Show version and exit")
 
 group01 = parser.add_argument_group()
 group01.add_argument("--debug", action="store_true", help="Set log level to debug")
 group01.add_argument("--info", action="store_true", help="Set log level to info")
 group01.add_argument("--quiet", action="store_true", help="Set log level to error")
 
+group02 = parser.add_argument_group()
+group02.add_argument("-c", "--config", type=str, help="Specify configuration yaml file [Default: config.yml]")
+group02.add_argument("-D", "--database", type=str, help="Specify database [Default: Read from config file]")
+group02.add_argument("-s", "--server", type=str, help="Specify remote server [Default: Read from config file]")
+group02.add_argument("-d", "--data-dir", type=str, help="Specify 'local data directory' [Default: Read from config file]")
+group02.add_argument("-l", "--tapelib", type=str, help="Specify tape library device [Default: Read from config file]")
+group02.add_argument("-t", "--tapedrive", type=str, help="Specify tape drive device [Default: Read from config file]")
+group02.add_argument("-m", "--tape-mount", type=str, help="Specify 'tape mount directory' [Default: Read from config file]")
 
 subparsers = parser.add_subparsers(title='Commands', dest='command')
 
 subparser_get = subparsers.add_parser('get', help='Get Files from remote Server')
-#subparser_dns.add_argument("-H", "--hostname", type=str, help="Specify hostname [Default: Build for all known firewalls]")
-#subparser_dns.add_argument("-p", "--print", action="store_true", help="Print firewall commands [DEFAULT]")
-#subparser_dns.add_argument("-s", "--sync", action="store_true", help="Sync firewall")
-#subparser_dns.add_argument("-d", "--no-diff", action="store_true",
-#                           help="Print all DNS objects, instead of a diff. Specify -H for specific firewall or IPAM DNS Objects will be displayed")
-#subparser_dns.add_argument("-a", "--addresses-only", action="store_true",
-#                           help="Processing addresses only (groups will be ignored)")
-#subparser_dns.add_argument("-g", "--groups-only", action="store_true",
-#                           help="Processing groups only (addresses will be ignored)")
-
 subparser_pack = subparsers.add_parser('pack', help='Enrypt files and build directory for one tape media size')
-
-
-
 subparser_write = subparsers.add_parser('write', help='Write directory into')
-
+subparser_verify = subparsers.add_parser('verify', help='Verify Files (random or given filename) on Tape')
 
 subparser_init = subparsers.add_parser('initDB', help='Initialize SQLite DB')
 subparser_repair = subparsers.add_parser('repairDB', help='Repair SQLite DB after stopped operation')
@@ -408,18 +438,21 @@ subparser_dbstats = subparsers.add_parser('statusDB', help='Show SQLite Informat
 #subsubparser_db = subparser_db.add_subparsers(title='Commands', dest='command')
 #subsubparser_db.add_parser('init', help='Initialize SQLite DB')
 
-subparser_tape = subparsers.add_parser('tapeinfo', help='Get Informations about Tapes and Devices')
 
 subparser_key = subparsers.add_parser('createKey', help='Create encryption key')
 
-subparser_verify = subparsers.add_parser('verify', help='Verify Files (random or given filename) on Tape')
 subparser_restore = subparsers.add_parser('restore', help='Restore File from Tape')
-subparser_restore.add_argument("-f", "--file", type=str, help="Specify filename or path/file")
+subparser_restore.add_argument("-f", "--file", type=str, required=True, help="Specify filename or path/file")
+
+subparser_tape = subparsers.add_parser('tapeinfo', help='Get Informations about Tapes and Devices')
+subparser_debug = subparsers.add_parser('debug', help='Print debug information')
 
 if __name__ == "__main__":
     ## TODO: Implement possibiblity, to overrride config options by giving commandline arguments
-    ##      -> change for example data path (local-download-dir)
+    ##      -> change for example data path (local-data-dir)
+    ## TODO: Make possible to run script from every path
 
+    files_prefix = os.path.abspath(os.path.dirname(sys.argv[0]))
     args = parser.parse_args()
 
     if args.debug:
@@ -433,17 +466,29 @@ if __name__ == "__main__":
         show_version()
         sys.exit(0)
 
-    if not os.path.isfile(cfg['database']) and args.command != "initDB" and args.command != "createKey":
+
+    if args.config is not None:
+        cfgfile = "{}/{}".format(files_prefix, args.config)
+    elif debug:
+        cfgfile = "{}/config-debug.yml".format(files_prefix)
+    else:
+        cfgfile = "{}/config.yml".format(files_prefix)
+
+    with open(cfgfile, 'r') as ymlfile:
+        cfg = yaml.full_load(ymlfile)
+
+
+    if not os.path.isfile(cfg['database']) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
         logger.error("Database does not exist: {}. Please execute 'initDB' first".format(cfg['database']))
         sys.exit(0)
-    if ( cfg['enc-key'] == "" or len(cfg['enc-key']) < 128 ) and args.command != "initDB" and args.command != "createKey":
+    if ( cfg['enc-key'] == "" or len(cfg['enc-key']) < 128 ) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
         logger.error("Encryption key is empty, please use at least 128 Byte Key")
         sys.exit(0)
 
-    if not os.path.isdir(cfg['local-download-dir']) and args.command != "initDB" and args.command != "createKey":
-        logger.error("'local-download-dir' not specified or does not exist")
+    if not os.path.isdir(cfg['local-data-dir']) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
+        logger.error("'local-data-dir' not specified or does not exist")
         sys.exit(0)
-    if not os.path.isdir(cfg['local-enc-dir']) and args.command != "initDB" and args.command != "createKey":
+    if not os.path.isdir(cfg['local-enc-dir']) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
         logger.error("'local-enc-dir' not specified or does not exist")
         sys.exit(0)
 
@@ -453,6 +498,11 @@ if __name__ == "__main__":
     database = Database(cfg)
     tapelibrary = Tapelibrary(cfg, database)
     tools = Tools(cfg, database)
+
+    if args.command == 'debug':
+        print_debug_info()
+
+    config_override_from_cmd()
 
     if args.command == "get":
         get_files()

@@ -80,6 +80,11 @@ class Database:
         self.conn.commit()
         return self.cursor.lastrowid
 
+    def export(self, filename):
+        with open(filename, 'w') as f:
+            for line in self.conn.iterdump():
+                f.write('{}\n'.format(line))
+
 
     def get_tables(self):
         self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
