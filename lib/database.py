@@ -26,7 +26,7 @@ class Database:
                     downloaded_date TEXT,
                     packed_date TEXT,
                     written_date TEXT,
-                    downloaded INT DEFAULT 0,
+                    downloaded INT DEFAULT 0,MM
                     packed INT DEFAULT 0,
                     written INT DEFAULT 0,
                     verified_count INT DEFAULT 0,

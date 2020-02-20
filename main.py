@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-
-import sqlite3
 import yaml
 import sys
 import logging
@@ -10,19 +8,17 @@ import os
 import time
 import signal
 import subprocess
-import hashlib
 import secrets
 import string
 import random
 import shutil
-from functools import partial
-from sqlite3 import Error
 from lib.database import Database
 from lib.tapelibrary import Tapelibrary
+from lib.tools import Tools
 
 pname = "Tapebackup"
 pversion = '0.1.0'
-debug = False
+debug = True
 
 logging.basicConfig(level=logging.DEBUG,
                     format='[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s',
@@ -64,33 +60,13 @@ interrupted = False
 child_process_pid = 0
 
 
-def md5sum(filename):
-    with open(filename, mode='rb') as f:
-        d = hashlib.md5()
-        for buf in iter(partial(f.read, 4096), b''):
-            d.update(buf)
-    return d.hexdigest()
-
-
-def strip_base_path(fullpath):
-    return os.path.relpath(fullpath, cfg['remote-base-dir'])
-
-
-def strip_path(path):
-    return os.path.basename(path)
-
-
-def strip_filename(path):
-    return os.path.dirname(path)
-
-
 def test_backup_pieces(filelist, percent):
     filecount_to_test = int(len(filelist) * percent / 100)
     logger.info("Testing {} files md5sum".format(filecount_to_test))
     for i in range(filecount_to_test):
         index = random.randrange(0, len(filelist))
         logger.info("Testing md5sum of file {}".format(filelist[index][3]))
-        if md5sum("{}/{}".format(cfg['local-tape-mount-dir'], filelist[index][1])) != filelist[index][2]:
+        if tools.md5sum("{}/{}".format(cfg['local-tape-mount-dir'], filelist[index][1])) != filelist[index][2]:
             return False
 
     return True
@@ -176,9 +152,9 @@ def get_files():
         fullpath = fpath.decode("UTF-8").rstrip()
         logger.info("Processing {}".format(fullpath))
 
-        relpath = strip_base_path(fullpath)
-        filename = strip_path(fullpath)
-        dir = strip_filename(relpath)
+        relpath = tools.strip_base_path(fullpath)
+        filename = tools.strip_path(fullpath)
+        dir = tools.strip_filename(relpath)
 
         if not database.check_if_file_exists_by_path(relpath):
             id = database.insert_file(filename, relpath)
@@ -195,7 +171,7 @@ def get_files():
 
             if len(rsync.stderr.readlines()) == 0:
                 mtime = int(os.path.getmtime("{}/{}".format(cfg['local-download-dir'], relpath)))
-                md5 = md5sum("{}/{}".format(cfg['local-download-dir'], relpath))
+                md5 = tools.md5sum("{}/{}".format(cfg['local-download-dir'], relpath))
                 downloaded_date = int(time.time())
 
                 duplicate = database.get_files_by_md5(md5)
@@ -251,7 +227,7 @@ def pack_files():
         child_process_pid = openssl.pid
 
         if len(openssl.stderr.readlines()) == 0:
-            md5 = md5sum("{}/{}".format(cfg['local-enc-dir'], filename_enc))
+            md5 = tools.md5sum("{}/{}".format(cfg['local-enc-dir'], filename_enc))
             packed_date = int(time.time())
             database.update_file_after_pack(packed_date, md5, id)
 
@@ -263,7 +239,7 @@ def pack_files():
             break
 
     ## encrypt
-    # openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -in '2016-09-23_dmax_Ice Lake Rebels; Bären auf dem See_AVC_1280x720_1600_AAC LC_128.mp4' -out test.enc -k supersicherespasswort
+    # openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -in 'videofile.mp4' -out test.enc -k supersicherespasswort
     ## decrypt
     # openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -in test.enc -out test.mp4
 
@@ -476,6 +452,7 @@ if __name__ == "__main__":
 
     database = Database(cfg)
     tapelibrary = Tapelibrary(cfg, database)
+    tools = Tools(cfg, database)
 
     if args.command == "get":
         get_files()
