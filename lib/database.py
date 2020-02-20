@@ -219,7 +219,7 @@ class Database:
                   WHERE id = ?'''
         return self.change_entry_in_database(sql, (filename_enc, id,))
 
-    def update_file_after_pack(self, packed_date, md5sum_encrypted):
+    def update_file_after_pack(self, packed_date, md5sum_encrypted, id):
         sql = ''' UPDATE files
                       SET packed_date = ?,
                           md5sum_encrypted = ?,
