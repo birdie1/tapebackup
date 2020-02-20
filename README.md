@@ -9,7 +9,11 @@ It stores all necessary information into a SQLite database. It stores original f
 ## Requirements
 It is written in Python 3.
 
-Kernel Modules: 
+Python modules:
+- pyyaml
+
+
+Kernel modules: 
 - sg
 - st
 

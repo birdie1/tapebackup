@@ -328,7 +328,7 @@ def write_files():
         free = (st.f_bavail * st.f_frsize)
         filesize = os.path.getsize("{}/{}".format(cfg['local-enc-dir'], filename))
 
-        if filesize > ( free - 1048576 ):
+        if filesize > ( free - 1073741824 ):
             logger.warning("Tape is full: I am testing now a few media, writing summary into database and unloading tape")
 
             if not test_backup_pieces(database.get_files_by_tapelabel(next_tape), 5):
@@ -460,14 +460,14 @@ if __name__ == "__main__":
     if not os.path.isfile(cfg['database']) and args.command != "initDB" and args.command != "createKey":
         logger.error("Database does not exist: {}. Please execute 'initDB' first".format(cfg['database']))
         sys.exit(0)
-    if ( cfg['enc-key'] == "" or len(cfg['enc-key']) < 128 ) and ( args.command != "initDB" or args.command != "createKey" ):
+    if ( cfg['enc-key'] == "" or len(cfg['enc-key']) < 128 ) and args.command != "initDB" and args.command != "createKey":
         logger.error("Encryption key is empty, please use at least 128 Byte Key")
         sys.exit(0)
 
-    if not os.path.isdir(cfg['local-download-dir']):
+    if not os.path.isdir(cfg['local-download-dir']) and args.command != "initDB" and args.command != "createKey":
         logger.error("'local-download-dir' not specified or does not exist")
         sys.exit(0)
-    if not os.path.isdir(cfg['local-enc-dir']):
+    if not os.path.isdir(cfg['local-enc-dir']) and args.command != "initDB" and args.command != "createKey":
         logger.error("'local-enc-dir' not specified or does not exist")
         sys.exit(0)
 

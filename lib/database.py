@@ -30,7 +30,8 @@ class Database:
                     packed INT DEFAULT 0,
                     written INT DEFAULT 0,
                     verified_count INT DEFAULT 0,
-                    verified_last TEXT 
+                    verified_last TEXT,
+                    deleted INT DEFAULT 0
                     );'''
 
         sql_tapedevice = '''CREATE TABLE IF NOT EXISTS tapedevices (
