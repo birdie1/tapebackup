@@ -12,9 +12,7 @@ import secrets
 import string
 import random
 import shutil
-from lib.database import Database
-from lib.tapelibrary import Tapelibrary
-from lib.tools import Tools
+from lib import Database, Tapelibrary, Tools
 
 pname = "Tapebackup"
 pversion = '0.1.0'
@@ -448,8 +446,6 @@ subparser_tape = subparsers.add_parser('tapeinfo', help='Get Informations about 
 subparser_debug = subparsers.add_parser('debug', help='Print debug information')
 
 if __name__ == "__main__":
-    ## TODO: Implement possibiblity, to overrride config options by giving commandline arguments
-    ##      -> change for example data path (local-data-dir)
     ## TODO: Make possible to run script from every path
 
     files_prefix = os.path.abspath(os.path.dirname(sys.argv[0]))

@@ -1,3 +1,3 @@
-from . import database
-from . import tapelibrary
-from . import tools
+from .database import Database
+from .tapelibrary import Tapelibrary
+from .tools import Tools

@@ -1,4 +1,4 @@
-## Description
+## Tapebackup
 This program downloads files via SSH/Rsync from remote server, encrypt them using openssl and stores them on tape devices.
 
 It stores all necessary information into a SQLite database. It stores original filenames, encrypted filenames, hashsums, tapedevices and Timestamps of operations
@@ -6,8 +6,9 @@ It stores all necessary information into a SQLite database. It stores original f
 **Caution**: It will not detect changes on same filename. Use it only for non changing files, like mediafiles or pictures.
 
 
-## Requirements
-It is written in Python 3.
+## Gettings started
+### Prerequisites
+It is written in Python 3. Install necessary tape software via distribution package manager. Install Python modules via pip.
 
 Python modules:
 - pyyaml
@@ -27,13 +28,32 @@ Tools:
 - rsync
 - sqlite
 
-### Known limitations
-- Tapelibraries with more than 1 drive possibly not working (I have no media to test with)
-- Verify backup by md5sum not yet implemented
-- Restorin files automaticaly from tapes not yet implemented
+#### Install LTFS (Linear Tape File System
+- [IBM Drives] OpenLTFS
+- [HP/HPE Drives] HPE StoreOpen und Linear Tape File System (LTFS) Software https://buy.hpe.com/de/de/storage/storage-software/storage-device-management-software/storeever-tape-device-management-software/hpe-storeopen-linear-tape-file-system-ltfs-software/p/4249221
+
+Follow install instructions from LTFS package
+  
+#### Install tools via package management
+Arch Linux
+```
+pacman -S mt-st-git rsync 
+
+## Install mtx via AUR, if you are using yay:
+yay -S mtx-svn
+```
+Debian based OS
+```
+apt install mt-st mtx rsync
+```
+
+#### Python venv
+```
+python3 -m virtualenv venv
+venv/bin/pip install -r requirements.txt
+```
 
 
-## Usage
 ### Change the configuration file!
 In order to use the tapebackup script, you need to modify the config.yml file to your needs.
 
@@ -59,6 +79,15 @@ It will find unused tapes in library and write data to it. If there are no free 
 
 ### More functions
 There are many more function around database or verifying files. Use `./main.py --help` to see all functions.
+
+## Tested with following Devices / OS
+- Arch Linux
+- TANDBERG StorageLoader with HP Ultrium 5-SCSI Drive
+
+## Known limitations
+- Tapelibraries with more than 1 drive possibly not working (I have no media to test with)
+- Verify backup by md5sum not yet implemented
+- Restoring files automaticaly from tapes not yet implemented
 
 ## Howto test tapelib from linux
 ### List Tape Devices
