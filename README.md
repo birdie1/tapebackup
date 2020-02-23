@@ -63,12 +63,22 @@ To download files via rsync from remote server execute:
 ./main.py get
 ```
 
+To use it for a local directory add --local (It will write the database entries only):
+```
+./main.py --local get
+```
+
 ### Encrypt files with openssl
 To encrypt files with openssl execute:
 ```
-./main.py pack
+./main.py encrypt
 ```
 It will create generated names with will to saved in the database.
+
+To use it for a local directory add --local (Then the data are nor deleted):
+```
+./main.py --local encrypt
+```
 
 ### Write encrypted files to tape
 To write the encrypted files to tape, execute the following:

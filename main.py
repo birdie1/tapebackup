@@ -136,16 +136,16 @@ def repair_db():
     print("Fixed {} messed up download entries".format(len(broken_d)))
 
 
-    broken_p = database.get_broken_db_pack_entry()
+    broken_p = database.get_broken_db_encrypt_entry()
     for file in broken_p:
         if os.path.isfile("{}/{}".format(cfg['local-enc-dir'], file[1])):
             os.remove("{}/{}".format(cfg['local-enc-dir'], file[1]))
 
         logger.info("Fixing Database ID: {}".format(file[0]))
-        database.update_broken_db_pack_entry(file[0])
+        database.update_broken_db_encrypt_entry(file[0])
 
-    logger.info("Fixed {} messed up pack entries".format(len(broken_p)))
-    print("Fixed {} messed up pack entries".format(len(broken_p)))
+    logger.info("Fixed {} messed up encrypt entries".format(len(broken_p)))
+    print("Fixed {} messed up encrypt entries".format(len(broken_p)))
 
 
 def status_db():
@@ -168,14 +168,17 @@ def get_files():
     global interrupted
     global child_process_pid
 
-    logger.info("Retrieving file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
-    commands = ['ssh', cfg['remote-server'], 'find "{}" -type f'.format(cfg['remote-data-dir'])]
-    ssh = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    result = ssh.stdout.readlines()
-    logger.info("Got file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
+    if args.local:
+        logger.info("Retrieving file list from server LOCAL directory '{}'".format(os.path.abspath(cfg['local-data-dir'])))
+        result = tools.ls_recursive(os.path.abspath(cfg['local-data-dir']))
+    else:
+        logger.info("Retrieving file list from server '{}' directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
+        commands = ['ssh', cfg['remote-server'], 'find "{}" -type f'.format(cfg['remote-data-dir'])]
+        ssh = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result = ssh.stdout.readlines()
+        logger.info("Got file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
 
     file_count_total = len(result)
-    print("Found {} entries. Start to process.".format(file_count_total))
     logger.info("Found {} entries. Start to process.".format(file_count_total))
 
     downloaded_count = 0
@@ -183,29 +186,40 @@ def get_files():
     failed_count = 0
 
     for fpath in result:
-        fullpath = fpath.decode("UTF-8").rstrip()
-        logger.info("Processing {}".format(fullpath))
+        if isinstance(fpath, bytes):
+            fullpath = fpath.decode("UTF-8").rstrip()
+            relpath = tools.strip_base_path(fullpath, cfg['remote-base-dir'])
+        else:
+            fullpath = fpath.rstrip()
+            relpath = tools.strip_base_path(fullpath, cfg['local-base-dir'])
+        logger.debug("Processing {}".format(fullpath))
 
-        relpath = tools.strip_base_path(fullpath)
         filename = tools.strip_path(fullpath)
         dir = tools.strip_filename(relpath)
 
         if not database.check_if_file_exists_by_path(relpath):
+            logger.info("Processing {}".format(fullpath))
             id = database.insert_file(filename, relpath)
-            logger.info("Inserting file into database. Fileid: {}".format(id))
-            print("Processing {}".format(fullpath))
+            logger.debug("Inserting file into database. Fileid: {}".format(id))
+            downloaded = False
 
-            os.makedirs("{}/{}".format(cfg['local-data-dir'], dir), exist_ok=True)
+            if not args.local:
+                os.makedirs("{}/{}".format(cfg['local-data-dir'], dir), exist_ok=True)
 
-            command = ['rsync', '--protect-args', '-ae', 'ssh', '{}:{}'.format(cfg['remote-server'], fullpath), '{}/{}'.format(cfg['local-data-dir'], dir)]
-            rsync = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
-            child_process_pid = rsync.pid
-            #print(rsync.args)
-            #print(rsync.stderr.readlines())
+                command = ['rsync', '--protect-args', '-ae', 'ssh', '{}:{}'.format(cfg['remote-server'], fullpath), '{}/{}'.format(cfg['local-data-dir'], dir)]
+                rsync = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
+                child_process_pid = rsync.pid
 
-            if len(rsync.stderr.readlines()) == 0:
-                mtime = int(os.path.getmtime("{}/{}".format(cfg['local-data-dir'], relpath)))
-                md5 = tools.md5sum("{}/{}".format(cfg['local-data-dir'], relpath))
+                if len(rsync.stderr.readlines()) == 0:
+                    downloaded = True
+
+            if args.local or downloaded:
+                if args.local:
+                    mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath))))
+                    md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath)))
+                else:
+                    mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath))))
+                    md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
                 downloaded_date = int(time.time())
 
                 duplicate = database.get_files_by_md5(md5)
@@ -215,7 +229,8 @@ def get_files():
                     duplicate_id = duplicate[0][0]
                     inserted_id = database.insert_alternative_file_names(filename, relpath, duplicate_id, downloaded_date)
                     database.delete_broken_db_download_entry(id)
-                    os.remove("{}/{}".format(cfg['local-data-dir'], relpath))
+                    if not args-local:
+                        os.remove(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
                     skipped_count += 1
                 else:
                     database.update_file_after_download(mtime, downloaded_date, md5, 1, id)
@@ -235,13 +250,13 @@ def get_files():
     #print("Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}".format(downloaded_count, skipped_count, failed_count))
 
 
-def pack_files():
+def encrypt_files():
     global interrupted
     global child_process_pid
 
-    logger.info("Starting pack files job")
+    logger.info("Starting encrypt files job")
 
-    files = database.get_files_to_be_packed()
+    files = database.get_files_to_be_encrypted()
     alphabet = string.ascii_letters + string.digits
 
     for file in files:
@@ -250,23 +265,27 @@ def pack_files():
 
         logger.info("Processing: id: {}, filename: {}".format(id, file[1]))
 
-        filename_enc_helper = ''.join(secrets.choice(alphabet) for i in range(32))
+        filename_enc_helper = ''.join(secrets.choice(alphabet) for i in range(64))
         filename_enc = "{}.enc".format(filename_enc_helper)
 
         database.update_filename_enc(filename_enc, id)
 
-        command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', '{}/{}'.format(cfg['local-data-dir'], filepath), '-out', '{}/{}'.format(cfg['local-enc-dir'], filename_enc), '-k', cfg['enc-key']]
+        if not args.local:
+            command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', os.path.abspath('{}/{}'.format(cfg['local-data-dir'], filepath)), '-out', os.path.abspath('{}/{}'.format(cfg['local-enc-dir'], filename_enc)), '-k', cfg['enc-key']]
+        else:
+            command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', os.path.abspath('{}/{}'.format(cfg['local-base-dir'], filepath)), '-out', os.path.abspath('{}/{}'.format(cfg['local-enc-dir'], filename_enc)), '-k', cfg['enc-key']]
         openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
         child_process_pid = openssl.pid
 
         if len(openssl.stderr.readlines()) == 0:
-            md5 = tools.md5sum("{}/{}".format(cfg['local-enc-dir'], filename_enc))
-            packed_date = int(time.time())
-            database.update_file_after_pack(packed_date, md5, id)
+            md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-enc-dir'], filename_enc)))
+            encrypted_date = int(time.time())
+            database.update_file_after_encrypt(encrypted_date, md5, id)
 
-            os.remove("{}/{}".format(cfg['local-data-dir'], filepath))
+            if not args.local:
+                os.remove(os.path.abspath("{}/{}".format(cfg['local-data-dir'], filepath)))
         else:
-            logger.warning("pack file failed, file: {} error: {}".format(id, openssl.stderr.readlines()))
+            logger.warning("encrypt file failed, file: {} error: {}".format(id, openssl.stderr.readlines()))
 
         if interrupted:
             break
@@ -412,6 +431,7 @@ group01.add_argument("--info", action="store_true", help="Set log level to info"
 group01.add_argument("--quiet", action="store_true", help="Set log level to error")
 
 group02 = parser.add_argument_group()
+group02.add_argument("--local", action="store_true", help="Use 'local-data-dir' as data source, not syncing from remote server, only adding to database and not deleting source files")
 group02.add_argument("-c", "--config", type=str, help="Specify configuration yaml file [Default: config.yml]")
 group02.add_argument("-D", "--database", type=str, help="Specify database [Default: Read from config file]")
 group02.add_argument("-s", "--server", type=str, help="Specify remote server [Default: Read from config file]")
@@ -423,7 +443,9 @@ group02.add_argument("-m", "--tape-mount", type=str, help="Specify 'tape mount d
 subparsers = parser.add_subparsers(title='Commands', dest='command')
 
 subparser_get = subparsers.add_parser('get', help='Get Files from remote Server')
-subparser_pack = subparsers.add_parser('pack', help='Enrypt files and build directory for one tape media size')
+
+subparser_encrypt = subparsers.add_parser('encrypt', help='Enrypt files and build directory for one tape media size')
+
 subparser_write = subparsers.add_parser('write', help='Write directory into')
 subparser_verify = subparsers.add_parser('verify', help='Verify Files (random or given filename) on Tape')
 
@@ -502,8 +524,8 @@ if __name__ == "__main__":
 
     if args.command == "get":
         get_files()
-    elif args.command == "pack":
-        pack_files()
+    elif args.command == "encrypt":
+        encrypt_files()
     elif args.command == "tapeinfo":
         tapeinfo()
     elif args.command == "write":

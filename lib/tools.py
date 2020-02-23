@@ -19,11 +19,19 @@ class Tools:
                 d.update(buf)
         return d.hexdigest()
 
-    def strip_base_path(self, fullpath):
-        return os.path.relpath(fullpath, self.config['remote-base-dir'])
+    def strip_base_path(self, fullpath, partpath):
+        return os.path.relpath(fullpath, partpath)
 
     def strip_path(self, path):
         return os.path.basename(path)
 
     def strip_filename(self, path):
         return os.path.dirname(path)
+
+    def ls_recursive(self, path):
+        files = []
+        # r=root, d=directories, f = files
+        for r, d, f in os.walk(path):
+            for file in f:
+                    files.append(os.path.join(r, file))
+        return files

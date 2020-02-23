@@ -24,10 +24,10 @@ class Database:
                     md5sum_encrypted TEXT,
                     tape TEXT,
                     downloaded_date TEXT,
-                    packed_date TEXT,
+                    encrypted_date TEXT,
                     written_date TEXT,
                     downloaded INT DEFAULT 0,MM
-                    packed INT DEFAULT 0,
+                    encrypted INT DEFAULT 0,
                     written INT DEFAULT 0,
                     verified_count INT DEFAULT 0,
                     verified_last TEXT,
@@ -148,14 +148,14 @@ class Database:
                       WHERE id = ?'''
         self.change_entry_in_database(sql, (id,))
 
-    def get_broken_db_pack_entry(self):
+    def get_broken_db_encrypt_entry(self):
         sql = ''' SELECT id, filename_encrypted FROM files 
                     WHERE filename_encrypted IS NOT NULL
-                    and packed=0
+                    and encrypted=0
                     '''
         return self.fetchall_from_database(sql)
 
-    def update_broken_db_pack_entry(self, id):
+    def update_broken_db_encrypt_entry(self, id):
         sql = ''' UPDATE files
                      SET filename_encrypted = NULL
                      WHERE id = ?'''
@@ -206,10 +206,10 @@ class Database:
                   WHERE id = ?'''
         return self.change_entry_in_database(sql, (mtime, downloaded_date, md5, downloaded, id,))
 
-    def get_files_to_be_packed(self):
+    def get_files_to_be_encrypted(self):
         sql = ''' SELECT id, filename, path FROM files 
                 WHERE downloaded=1
-                AND packed = 0
+                AND encrypted = 0
                 '''
         return self.fetchall_from_database(sql)
 
@@ -219,13 +219,13 @@ class Database:
                   WHERE id = ?'''
         return self.change_entry_in_database(sql, (filename_enc, id,))
 
-    def update_file_after_pack(self, packed_date, md5sum_encrypted, id):
+    def update_file_after_encrypt(self, encrypted_date, md5sum_encrypted, id):
         sql = ''' UPDATE files
-                      SET packed_date = ?,
+                      SET encrypted_date = ?,
                           md5sum_encrypted = ?,
-                          packed = 1
+                          encrypted = 1
                       WHERE id = ?'''
-        return self.change_entry_in_database(sql, (packed_date, md5sum_encrypted, id,))
+        return self.change_entry_in_database(sql, (encrypted_date, md5sum_encrypted, id,))
 
     def get_full_tapes(self, label):
         sql = ''' SELECT id, label, full FROM tapedevices 
@@ -250,7 +250,7 @@ class Database:
     def get_files_to_be_written(self):
         sql = ''' SELECT id, filename_encrypted, md5sum_encrypted, filename FROM files 
                     WHERE downloaded=1
-                    AND packed=1
+                    AND encrypted=1
                     AND written=0
                     '''
         return self.fetchall_from_database(sql)

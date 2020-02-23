@@ -1,19 +1,39 @@
-# lto (ltfs) sizes in Bytes - 2G to be safe
-lto-sizes:
-  - LTO5: 1308693760000
+## Specify taped that are not allowed to use
 lto-ignore-tapes:
   - Z00001L5
   - Z00002L5
+
+## Specify tapelibrary and tapedrive devices
 devices:
   tapelib: "/dev/sg5"
   tapedrive: "/dev/st0"
 
+## Encryption key, make sure you save it somewhere else again
+## If you loose it, no restore is possible
+enc-key: ""
+
+## Database name
 database: "tapebackup.db"
-database-backup-git-path: ""
+
+## Path for database backup (SQL File into Git)
+database-backup-git-path: "sql-backup"
+
+## Remote server to sync data from
 remote-server: "sever.example.com"
+
+## Specify remote datadir and basedir
+## basedir: will be stripped from remote-base-dir
+## remote data and base direcotry must be an absolute path
 remote-base-dir: "/mnt/bigDataStorage"
 remote-data-dir: "/mnt/bigDataStorage/Videos"
+
+## Specify local datadir and basedir
+## local-base-dir is only necessary if you want to backup from local directory
+local-base-dir: ""
 local-data-dir: "test-download-dir"
+
+## Specify directory where encrypted files are stored
 local-enc-dir: "test-enc-dir"
+
+## Specify directory where tapedrive is mounted, will be used to write backups to
 local-tape-mount-dir: "/mnt/tapedrive"
-enc-key: ""
