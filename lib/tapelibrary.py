@@ -3,6 +3,7 @@ import subprocess
 import re
 import sys
 import os
+import time
 
 logger = logging.getLogger()
 
@@ -12,6 +13,7 @@ class Tapelibrary:
         self.database = database
 
     def get_tapes_tags_from_library(self):
+        time_started = time.time()
         logger.debug("Retrieving current tape tags in library")
         commands = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
         mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -30,6 +32,7 @@ class Tapelibrary:
                 else:
                     tag_in_tapelib.append(tag)
 
+        logger.debug("Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
         logger.debug("Got following tags for usage: {}".format(tag_in_tapelib))
         return tag_in_tapelib, tags_to_remove_from_library
 
@@ -67,7 +70,9 @@ class Tapelibrary:
         else:
             logger.info("Tape {} loaded successfully".format(tag))
 
+
     def unload(self):
+        time_started = time.time()
         if os.path.ismount(self.config['local-tape-mount-dir']):
             logger.debug("Unmounting: {}".format(self.config['local-tape-mount-dir']))
             commands = ['umount', self.config['local-tape-mount-dir']]
@@ -81,11 +86,16 @@ class Tapelibrary:
 
         if len(mtx.stderr.readlines()) > 0:
             logger.error("Cant unload drive, giving up")
+            logger.debug("Execution Time: Unloading tape: {} seconds".format(time.time() - time_started))
             sys.exit(1)
         else:
             logger.info("Drive unloaded loaded successfully")
 
+        logger.debug("Execution Time: Unloading tape: {} seconds".format(time.time() - time_started))
+
+
     def load(self, next_tape):
+        time_started = time.time()
         loaded_tag = self.get_current_tag_in_transfer_element()
 
         if not loaded_tag:
@@ -101,6 +111,7 @@ class Tapelibrary:
                 logger.info("Loading tape ({}) into drive".format(next_tape))
 
                 self.load_by_tag(next_tape)
+        logger.debug("Execution Time: Load tape into tapedrive: {} seconds".format(time.time() - time_started))
 
     def ltfs(self):
         mounted = self.mount_ltfs()
@@ -110,14 +121,17 @@ class Tapelibrary:
 
 
     def mkltfs(self):
+        time_started = time.time()
         commands = ['mkltfs', '-d', self.config['devices']['tapedrive']]
         ltfs = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         std_out, std_err = ltfs.communicate()
 
         logger.info("Formating Tape: {}".format(std_out))
+        logger.debug("Execution Time: Make LTFS Filesystem: {} seconds".format(time.time() - time_started))
 
 
     def mount_ltfs(self):
+        time_started = time.time()
         if os.path.ismount(self.config['local-tape-mount-dir']):
             logger.debug('LTFS already mounted, skip mounting')
             return True
@@ -139,11 +153,14 @@ class Tapelibrary:
                 sys.exit(1)
 
             logger.error("Unknown error when trying to mount")
+            logger.debug("Execution Time: Mount LTFS: {} seconds".format(time.time() - time_started))
             sys.exit(1)
 
         else:
             logger.info("LTFS successfully mounted")
+            logger.debug("Execution Time: Mount LTFS: {} seconds".format(time.time() - time_started))
             return True
+
 
 
     def loaderinfo(self):

@@ -169,11 +169,16 @@ def get_files():
         logger.info("Retrieving file list from server LOCAL directory '{}'".format(os.path.abspath(cfg['local-data-dir'])))
         result = tools.ls_recursive(os.path.abspath(cfg['local-data-dir']))
     else:
+        timeStarted = time.time()
+
         logger.info("Retrieving file list from server '{}' directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
         commands = ['ssh', cfg['remote-server'], 'find "{}" -type f'.format(cfg['remote-data-dir'])]
         ssh = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         result = ssh.stdout.readlines()
         logger.info("Got file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
+
+        timeDelta = time.time() - timeStarted
+        logger.debug("Execution Time: Building filelist: {} seconds".format(timeDelta))
 
     file_count_total = len(result)
     logger.info("Found {} entries. Start to process.".format(file_count_total))
@@ -203,22 +208,29 @@ def get_files():
             if not args.local:
                 os.makedirs("{}/{}".format(cfg['local-data-dir'], dir), exist_ok=True)
 
+                time_started = time.time()
                 command = ['rsync', '--protect-args', '-ae', 'ssh', '{}:{}'.format(cfg['remote-server'], fullpath), '{}/{}'.format(cfg['local-data-dir'], dir)]
                 rsync = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
                 child_process_pid = rsync.pid
+                time_delta = time.time() - time_started
+                logger.debug("Execution Time: Downloading file: {} seconds".format(time_delta))
 
                 if len(rsync.stderr.readlines()) == 0:
                     downloaded = True
 
             if args.local or downloaded:
+                time_started = time.time()
                 if args.local:
                     mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath))))
                     md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath)))
                 else:
                     mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath))))
                     md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
-                downloaded_date = int(time.time())
 
+                time_delta = time.time() - time_started
+                logger.debug("Execution Time: Building md5sum and mtime: {} seconds".format(time_delta))
+
+                downloaded_date = int(time.time())
                 duplicate = database.get_files_by_md5(md5)
                 if len(duplicate) > 0:
                     logger.info("File downloaded with another name. Storing filename in Database: {}".format(filename))
@@ -226,7 +238,12 @@ def get_files():
                     inserted_id = database.insert_alternative_file_names(filename, relpath, duplicate_id, downloaded_date)
                     database.delete_broken_db_download_entry(id)
                     if not args-local:
+                        time_started = time.time()
+
                         os.remove(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
+
+                        time_delta = time.time() - time_started
+                        logger.debug("Execution Time: Remove duplicate file: {} seconds".format(time_delta))
                     skipped_count += 1
                 else:
                     database.update_file_after_download(mtime, downloaded_date, md5, 1, id)
@@ -265,6 +282,8 @@ def encrypt_files():
 
         database.update_filename_enc(filename_enc, id)
 
+        time_started = time.time()
+
         if not args.local:
             command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', os.path.abspath('{}/{}'.format(cfg['local-data-dir'], filepath)), '-out', os.path.abspath('{}/{}'.format(cfg['local-enc-dir'], filename_enc)), '-k', cfg['enc-key']]
         else:
@@ -272,13 +291,20 @@ def encrypt_files():
         openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
         child_process_pid = openssl.pid
 
+        logger.debug("Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
+
         if len(openssl.stderr.readlines()) == 0:
+            time_started = time.time()
             md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-enc-dir'], filename_enc)))
+            logger.debug("Execution Time: md5sum encrypted file: {} seconds".format(time.time() - time_started))
+
             encrypted_date = int(time.time())
             database.update_file_after_encrypt(encrypted_date, md5, id)
 
             if not args.local:
+                time_started = time.time()
                 os.remove(os.path.abspath("{}/{}".format(cfg['local-data-dir'], filepath)))
+                logger.debug("Execution Time: Remove file after encryption: {} seconds".format(time.time() - time_started))
         else:
             logger.warning("encrypt file failed, file: {} error: {}".format(id, openssl.stderr.readlines()))
 
@@ -311,7 +337,10 @@ def tapestatus():
 
     print("")
     print("Ignored Tapes ({}) due to config: {}".format(len(cfg['lto-ignore-tapes']), cfg['lto-ignore-tapes']))
-    print("Full tapes: {}".format(database.get_full_tapes()))
+    full = []
+    for i in database.get_full_tapes():
+        full.append(i[0])
+    print("Full tapes: {}".format(full))
 
     print("")
     print("Free tapes in library({}): {}".format(len(tapes), tapes))
@@ -341,6 +370,7 @@ def write_files():
     ## Write used tape into database
     database.write_tape_into_database(next_tape)
 
+    time_started = time.time()
     st = os.statvfs(cfg['local-tape-mount-dir'])
     logger.info("Tape: Used: {} ({} GB), Free: {} ({} GB), Total: {} ({} GB)".format(
                                                             (st.f_blocks - st.f_bfree) * st.f_frsize,
@@ -350,6 +380,7 @@ def write_files():
                                                             (st.f_blocks * st.f_frsize),
                                                             int((st.f_blocks * st.f_frsize) / 1024 / 1024 / 1024)
     ))
+    logger.debug("Execution Time: Getting tape space info: {} seconds".format(time.time() - time_started))
 
     files = database.get_files_to_be_written()
     for file in files:
@@ -382,6 +413,7 @@ def write_files():
             database.mark_tape_as_full(next_tape, int(time.time()))
 
             ## WRITE Database encrypted on tape
+            time_started = time.time()
             dt = int(time.time())
             command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', cfg['database'], '-out', '{}/tapebackup_{}.db.enc'.format(cfg['local-tape-mount-dir'], dt), '-k', cfg['enc-key']]
             openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -400,12 +432,15 @@ def write_files():
                 logger.error("Writing Textfile to Tape failed")
                 sys.exit(1)
             os.remove('tapebackup_{}.txt'.format(dt))
+            logger.debug("Execution Time: Encrypt and write databse to tape: {} seconds".format(time.time() - time_started))
 
             ## DELETE all Files, that has been transfered to tape
+            time_started = time.time()
             for i in database.get_files_by_tapelabel(next_tape):
                 if os.path.exists("{}/{}".format(cfg['local-enc-dir'], i[1])):
                     logger.info("Deleting encrypted file: {} ({})".format(i[3], i[1]))
                     os.remove("{}/{}".format(cfg['local-enc-dir'], i[1]))
+            logger.debug("Execution Time: Deleted encrypted files written to tape: {} seconds".format(time.time() - time_started))
 
             ## Unload tape
             tapelibrary.unload()
@@ -413,7 +448,9 @@ def write_files():
             break
 
         logger.info("Writing file to tape: {}".format(orig_filename))
+        time_started = time.time()
         shutil.copy2("{}/{}".format(cfg['local-enc-dir'], filename), "{}/".format(cfg['local-tape-mount-dir']))
+        logger.debug("Execution Time: Copy file to tape: {} seconds".format(time.time() - time_started))
         database.update_file_after_write(int(time.time()), next_tape, id)
 
         if interrupted:
@@ -493,10 +530,13 @@ if __name__ == "__main__":
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
+        handler.setLevel(logging.DEBUG)
     elif args.info:
         logging.getLogger().setLevel(logging.INFO)
+        handler.setLevel(logging.INFO)
     elif args.quiet:
         logging.getLogger().setLevel(logging.ERROR)
+        handler.setLevel(logging.ERROR)
 
     if args.version:
         show_version()
