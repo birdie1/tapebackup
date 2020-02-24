@@ -169,7 +169,7 @@ def get_files():
         logger.info("Retrieving file list from server LOCAL directory '{}'".format(os.path.abspath(cfg['local-data-dir'])))
         result = tools.ls_recursive(os.path.abspath(cfg['local-data-dir']))
     else:
-        timeStarted = time.time()
+        time_started = time.time()
 
         logger.info("Retrieving file list from server '{}' directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
         commands = ['ssh', cfg['remote-server'], 'find "{}" -type f'.format(cfg['remote-data-dir'])]
@@ -177,8 +177,7 @@ def get_files():
         result = ssh.stdout.readlines()
         logger.info("Got file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
 
-        timeDelta = time.time() - timeStarted
-        logger.debug("Execution Time: Building filelist: {} seconds".format(timeDelta))
+        logger.debug("Execution Time: Building filelist: {} seconds".format(time.time() - time_started))
 
     file_count_total = len(result)
     logger.info("Found {} entries. Start to process.".format(file_count_total))
@@ -212,11 +211,10 @@ def get_files():
                 command = ['rsync', '--protect-args', '-ae', 'ssh', '{}:{}'.format(cfg['remote-server'], fullpath), '{}/{}'.format(cfg['local-data-dir'], dir)]
                 rsync = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
                 child_process_pid = rsync.pid
-                time_delta = time.time() - time_started
-                logger.debug("Execution Time: Downloading file: {} seconds".format(time_delta))
 
                 if len(rsync.stderr.readlines()) == 0:
                     downloaded = True
+                logger.debug("Execution Time: Downloading file: {} seconds".format(time.time() - time_started))
 
             if args.local or downloaded:
                 time_started = time.time()
@@ -291,9 +289,9 @@ def encrypt_files():
         openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
         child_process_pid = openssl.pid
 
-        logger.debug("Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
 
         if len(openssl.stderr.readlines()) == 0:
+            logger.debug("Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
             time_started = time.time()
             md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-enc-dir'], filename_enc)))
             logger.debug("Execution Time: md5sum encrypted file: {} seconds".format(time.time() - time_started))
@@ -307,6 +305,7 @@ def encrypt_files():
                 logger.debug("Execution Time: Remove file after encryption: {} seconds".format(time.time() - time_started))
         else:
             logger.warning("encrypt file failed, file: {} error: {}".format(id, openssl.stderr.readlines()))
+            logger.debug("Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
 
         if interrupted:
             break
