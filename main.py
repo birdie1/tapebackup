@@ -363,7 +363,15 @@ def write_files():
         free = (st.f_bavail * st.f_frsize)
         filesize = os.path.getsize("{}/{}".format(cfg['local-enc-dir'], filename))
 
-        if filesize > ( free - 1073741824 ):
+        logger.debug("Tape: Free: {}, Used: {}, Fileid: {}, Filesize: {}".format(
+            free,
+            int((st.f_blocks - st.f_bfree) * st.f_frsize),
+            id,
+            filesize
+        ))
+
+        if filesize > ( free - 10737418240 ):
+            logger.debug("Writing fileid {} to tape".format(id))
             logger.warning("Tape is full: I am testing now a few media, writing summary into database and unloading tape")
 
             if not test_backup_pieces(database.get_files_by_tapelabel(next_tape), 5):
