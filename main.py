@@ -15,7 +15,7 @@ import shutil
 from lib import Database, Tapelibrary, Tools
 
 pname = "Tapebackup"
-pversion = '0.1.0'
+pversion = '0.1.1'
 debug = False
 
 logging.basicConfig(level=logging.DEBUG,
@@ -40,7 +40,7 @@ def signal_handler(signal, frame):
         os.kill(child_process_pid, signal)
     else:
         interrupted = True
-        print(' I will stop after current Operation!')
+        print('\n I will stop after current Operation!')
 
 signal.signal(signal.SIGINT, signal_handler)
 interrupted = False
@@ -120,7 +120,6 @@ def create_key():
 def init_db():
     if database.create_tables():
         logger.info("Tables created")
-        print("Tables created")
 
 
 def repair_db():
@@ -133,7 +132,6 @@ def repair_db():
         database.delete_broken_db_download_entry(file[0])
 
     logger.info("Fixed {} messed up download entries".format(len(broken_d)))
-    print("Fixed {} messed up download entries".format(len(broken_d)))
 
 
     broken_p = database.get_broken_db_encrypt_entry()
@@ -145,7 +143,6 @@ def repair_db():
         database.update_broken_db_encrypt_entry(file[0])
 
     logger.info("Fixed {} messed up encrypt entries".format(len(broken_p)))
-    print("Fixed {} messed up encrypt entries".format(len(broken_p)))
 
 
 def status_db():
@@ -225,7 +222,6 @@ def get_files():
                 duplicate = database.get_files_by_md5(md5)
                 if len(duplicate) > 0:
                     logger.info("File downloaded with another name. Storing filename in Database: {}".format(filename))
-                    print("File downloaded with another name. Storing filename in Database: {}".format(filename))
                     duplicate_id = duplicate[0][0]
                     inserted_id = database.insert_alternative_file_names(filename, relpath, duplicate_id, downloaded_date)
                     database.delete_broken_db_download_entry(id)
@@ -247,7 +243,6 @@ def get_files():
             break
 
     logger.info("Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}".format(downloaded_count, skipped_count, failed_count))
-    #print("Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}".format(downloaded_count, skipped_count, failed_count))
 
 
 def encrypt_files():
@@ -311,12 +306,24 @@ def tapeinfo():
     for i in tapelibrary.mtxinfo():
         print("    {}".format(i.decode('utf-8').rstrip()))
 
+def tapestatus():
+    tapes, tapes_to_remove = tapelibrary.get_tapes_tags_from_library()
+
+    print("")
+    print("Ignored Tapes ({}) due to config: {}".format(len(cfg['lto-ignore-tapes']), cfg['lto-ignore-tapes']))
+    print("Full tapes: {}".format(database.get_full_tapes()))
+
+    print("")
+    print("Free tapes in library({}): {}".format(len(tapes), tapes))
+
+    print("")
+    print("Please remove following tapes from library ({}): {}".format(len(tapes_to_remove), tapes_to_remove))
+
 
 def write_files():
     recursive = False
     tapes, tapes_to_remove = tapelibrary.get_tapes_tags_from_library()
     if len(tapes_to_remove) > 0:
-        print("These tapes are full, please remove from library: {}".format(tapes_to_remove))
         logger.warning("These tapes are full, please remove from library: {}".format(tapes_to_remove))
 
     if len(tapes) == 0:
@@ -441,30 +448,33 @@ group02.add_argument("-t", "--tapedrive", type=str, help="Specify tape drive dev
 group02.add_argument("-m", "--tape-mount", type=str, help="Specify 'tape mount directory' [Default: Read from config file]")
 
 subparsers = parser.add_subparsers(title='Commands', dest='command')
-
 subparser_get = subparsers.add_parser('get', help='Get Files from remote Server')
-
 subparser_encrypt = subparsers.add_parser('encrypt', help='Enrypt files and build directory for one tape media size')
-
 subparser_write = subparsers.add_parser('write', help='Write directory into')
 subparser_verify = subparsers.add_parser('verify', help='Verify Files (random or given filename) on Tape')
-
-subparser_init = subparsers.add_parser('initDB', help='Initialize SQLite DB')
-subparser_repair = subparsers.add_parser('repairDB', help='Repair SQLite DB after stopped operation')
-subparser_backup = subparsers.add_parser('backupDB', help='Backup SQLite DB to given GIT repo')
-subparser_dbstats = subparsers.add_parser('statusDB', help='Show SQLite Information')
-
-#subparser_db = subparsers.add_parser('db', help='Database operations')
-#subsubparser_db = subparser_db.add_subparsers(title='Commands', dest='command')
-#subsubparser_db.add_parser('init', help='Initialize SQLite DB')
-
-
-subparser_key = subparsers.add_parser('createKey', help='Create encryption key')
-
 subparser_restore = subparsers.add_parser('restore', help='Restore File from Tape')
 subparser_restore.add_argument("-f", "--file", type=str, required=True, help="Specify filename or path/file")
 
-subparser_tape = subparsers.add_parser('tapeinfo', help='Get Informations about Tapes and Devices')
+
+subparser_db = subparsers.add_parser('db', help='Database operations')
+subsubparser_db = subparser_db.add_subparsers(title='Subcommands', dest='command_sub')
+subsubparser_db.add_parser('init', help='Initialize SQLite DB')
+subsubparser_db.add_parser('repair', help='Repair SQLite DB after stopped operation')
+subsubparser_db.add_parser('backup', help='Backup SQLite DB to given GIT repo')
+subsubparser_db.add_parser('status', help='Show SQLite Information')
+
+
+subparser_tape = subparsers.add_parser('tape', help='Tapelibrary operations')
+subsubparser_tape = subparser_tape.add_subparsers(title='Subcommands', dest='command_sub')
+subsubparser_tape.add_parser('info', help='Get Informations about Tapes and Devices')
+subsubparser_tape.add_parser('status', help='Get Informations about Tapes (offline/online and to be removed)')
+
+
+subparser_config = subparsers.add_parser('config', help='Configuration operations')
+subsubparser_config = subparser_config.add_subparsers(title='Subcommands', dest='command_sub')
+subsubparser_config.add_parser('create_key', help='Create 128 Byte encryption key')
+
+
 subparser_debug = subparsers.add_parser('debug', help='Print debug information')
 
 if __name__ == "__main__":
@@ -497,10 +507,10 @@ if __name__ == "__main__":
 
 
     if not os.path.isfile(cfg['database']) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
-        logger.error("Database does not exist: {}. Please execute 'initDB' first".format(cfg['database']))
+        logger.error("Database does not exist: {}. Please execute './main.py db init' first".format(cfg['database']))
         sys.exit(0)
     if ( cfg['enc-key'] == "" or len(cfg['enc-key']) < 128 ) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
-        logger.error("Encryption key is empty, please use at least 128 Byte Key")
+        logger.error("Encryption key is empty, please use at least 128 Byte Key, use './main.py config create_key' to create a random key")
         sys.exit(0)
 
     if not os.path.isdir(cfg['local-data-dir']) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
@@ -526,26 +536,39 @@ if __name__ == "__main__":
         get_files()
     elif args.command == "encrypt":
         encrypt_files()
-    elif args.command == "tapeinfo":
-        tapeinfo()
     elif args.command == "write":
         write_files()
-    elif args.command == "initDB":
-        init_db()
-    elif args.command == "createKey":
-        create_key()
-    elif args.command == "repairDB":
-        repair_db()
-    elif args.command == "statusDB":
-        status_db()
-    elif args.command == "backupDB":
-        if cfg['database-backup-git-path'] == "":
-            logger.error("'database-backup-git-path' key is empty, please specify git path")
-            sys.exit(0)
-        backup_db()
     elif args.command == "verify":
         verify_file()
         ## verify_tape()
     elif args.command == "restore":
         restore_file()
+    elif args.command == "tape":
+        if args.command_sub == "info":
+            tapeinfo()
+        elif args.command_sub == "status":
+            tapestatus()
+        elif args.command_sub is None:
+            parser.print_help()
+    elif args.command == "db":
+        if args.command_sub == "init":
+            init_db()
+        elif args.command_sub == "repair":
+            repair_db()
+        elif args.command_sub == "status":
+            status_db()
+        elif args.command_sub == "backup":
+            if cfg['database-backup-git-path'] == "":
+                logger.error("'database-backup-git-path' key is empty, please specify git path")
+                sys.exit(0)
+            backup_db()
+        elif args.command_sub is None:
+            parser.print_help()
+    elif args.command == "db":
+        if args.command_sub == "create_key":
+            create_key()
+        elif args.command_sub is None:
+            parser.print_help()
+
+
 

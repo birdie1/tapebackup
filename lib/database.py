@@ -227,12 +227,18 @@ class Database:
                       WHERE id = ?'''
         return self.change_entry_in_database(sql, (encrypted_date, md5sum_encrypted, id,))
 
-    def get_full_tapes(self, label):
+    def get_full_tape(self, label):
         sql = ''' SELECT id, label, full FROM tapedevices 
                 WHERE label=?
                 AND full=1
                 '''
         return self.fetchall_from_database(sql, (label,))
+
+    def get_full_tapes(self):
+        sql = ''' SELECT label FROM tapedevices 
+                WHERE full=1
+                '''
+        return self.fetchall_from_database(sql)
 
     def get_used_tapes(self, label):
         sql = ''' SELECT id, label, full FROM tapedevices 

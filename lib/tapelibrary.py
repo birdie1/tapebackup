@@ -24,7 +24,7 @@ class Tapelibrary:
                 tag = line[line.find('=') + 1:].rstrip().lstrip()
                 if tag in self.config['lto-ignore-tapes']:
                     logger.debug('Ignore Tag {} because exists in ignore list in config'.format(tag))
-                elif len(self.database.get_full_tapes(tag)) > 0:
+                elif len(self.database.get_full_tape(tag)) > 0:
                     logger.debug('Ignore Tag {} because exists in database and is full'.format(tag))
                     tags_to_remove_from_library.append(tag)
                 else:
