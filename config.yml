@@ -1,3 +1,6 @@
+## Max Threads use (right now only in 'get' module)
+threads: 4
+
 ## Specify taped that are not allowed to use
 lto-ignore-tapes:
   - Z00001L5

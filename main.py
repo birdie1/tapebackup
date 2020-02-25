@@ -12,6 +12,7 @@ import secrets
 import string
 import random
 import shutil
+import threading
 from lib import Database, Tapelibrary, Tools
 
 pname = "Tapebackup"
@@ -36,15 +37,21 @@ def signal_handler(signal, frame):
     global interrupted
     global child_process_pid
     if interrupted:
-        print('Pressed CTRL + C twice, giving up. Please check the database for broken entry!')
-        os.kill(child_process_pid, signal)
+        print(' Pressed CTRL + C twice, giving up. Please check the database for broken entry!')
+        for i in child_process_pid:
+            os.kill(i, signal)
+        sys.exit(1)
     else:
         interrupted = True
-        print('\n I will stop after current Operation!')
+        print(' I will stop after current Operation!')
 
 signal.signal(signal.SIGINT, signal_handler)
 interrupted = False
-child_process_pid = 0
+child_process_pid = []
+downloaded_count = 0
+skipped_count = 0
+failed_count = 0
+active_threads = []
 
 
 def test_backup_pieces(filelist, percent):
@@ -57,6 +64,67 @@ def test_backup_pieces(filelist, percent):
             return False
 
     return True
+
+
+def get_thread(threadnr, id, filename, fullpath, relpath, directory):
+    global child_process_pid
+    global failed_count
+    global downloaded_count
+    global skipped_count
+    global active_threads
+    downloaded = False
+    thread_db = Database(cfg)
+
+    if not args.local:
+        os.makedirs("{}/{}".format(cfg['local-data-dir'], directory), exist_ok=True)
+
+        time_started = time.time()
+        command = ['rsync', '--protect-args', '-ae', 'ssh', '{}:{}'.format(cfg['remote-server'], fullpath),
+                   '{}/{}'.format(cfg['local-data-dir'], directory)]
+        rsync = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
+        child_process_pid.append(rsync.pid)
+
+        if len(rsync.stderr.readlines()) == 0:
+            child_process_pid.remove(rsync.pid)
+            downloaded = True
+        logger.debug("Execution Time: Downloading file: {} seconds".format(time.time() - time_started))
+
+    if args.local or downloaded:
+        time_started = time.time()
+        if args.local:
+            mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath))))
+            md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath)))
+        else:
+            mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath))))
+            md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
+
+        time_delta = time.time() - time_started
+        logger.debug("Execution Time: Building md5sum and mtime: {} seconds".format(time_delta))
+
+        downloaded_date = int(time.time())
+        duplicate = thread_db.get_files_by_md5(md5)
+        if len(duplicate) > 0:
+            logger.info("File downloaded with another name. Storing filename in Database: {}".format(filename))
+            duplicate_id = duplicate[0][0]
+            inserted_id = thread_db.insert_alternative_file_names(filename, relpath, duplicate_id, downloaded_date)
+            thread_db.delete_broken_db_download_entry(id)
+            if not args.local:
+                time_started = time.time()
+
+                os.remove(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
+
+                time_delta = time.time() - time_started
+                logger.debug("Execution Time: Remove duplicate file: {} seconds".format(time_delta))
+            skipped_count += 1
+        else:
+            thread_db.update_file_after_download(mtime, downloaded_date, md5, 1, id)
+            downloaded_count += 1
+            logger.debug("Download finished: {}".format(relpath))
+    else:
+        logger.warning("Download failed, file: {} error: {}".format(relpath, rsync.stderr.readlines()))
+        failed_count += 1
+
+    active_threads.remove(threadnr)
 
 
 ########## main functions from here ##########
@@ -164,6 +232,10 @@ def backup_db():
 def get_files():
     global interrupted
     global child_process_pid
+    global downloaded_count
+    global skipped_count
+    global failed_count
+    global active_threads
 
     if args.local:
         logger.info("Retrieving file list from server LOCAL directory '{}'".format(os.path.abspath(cfg['local-data-dir'])))
@@ -196,65 +268,31 @@ def get_files():
         logger.debug("Processing {}".format(fullpath))
 
         filename = tools.strip_path(fullpath)
-        dir = tools.strip_filename(relpath)
+        directory = tools.strip_filename(relpath)
 
         if not database.check_if_file_exists_by_path(relpath):
-            logger.info("Processing {}".format(fullpath))
+            for i in range(0, cfg['threads']):
+                if i not in active_threads:
+                    next_thread = i
+                    break
+            logger.info("Starting Thread #{}, processing: {}".format(next_thread, fullpath))
             id = database.insert_file(filename, relpath)
             logger.debug("Inserting file into database. Fileid: {}".format(id))
-            downloaded = False
 
-            if not args.local:
-                os.makedirs("{}/{}".format(cfg['local-data-dir'], dir), exist_ok=True)
+            active_threads.append(next_thread)
+            x = threading.Thread(target=get_thread, args=(next_thread, id, filename, fullpath, relpath, directory,), daemon=True)
+            x.start()
 
-                time_started = time.time()
-                command = ['rsync', '--protect-args', '-ae', 'ssh', '{}:{}'.format(cfg['remote-server'], fullpath), '{}/{}'.format(cfg['local-data-dir'], dir)]
-                rsync = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
-                child_process_pid = rsync.pid
+            while threading.active_count() > cfg['threads']:
+                time.sleep(10)
 
-                if len(rsync.stderr.readlines()) == 0:
-                    downloaded = True
-                logger.debug("Execution Time: Downloading file: {} seconds".format(time.time() - time_started))
-
-            if args.local or downloaded:
-                time_started = time.time()
-                if args.local:
-                    mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath))))
-                    md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath)))
-                else:
-                    mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath))))
-                    md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
-
-                time_delta = time.time() - time_started
-                logger.debug("Execution Time: Building md5sum and mtime: {} seconds".format(time_delta))
-
-                downloaded_date = int(time.time())
-                duplicate = database.get_files_by_md5(md5)
-                if len(duplicate) > 0:
-                    logger.info("File downloaded with another name. Storing filename in Database: {}".format(filename))
-                    duplicate_id = duplicate[0][0]
-                    inserted_id = database.insert_alternative_file_names(filename, relpath, duplicate_id, downloaded_date)
-                    database.delete_broken_db_download_entry(id)
-                    if not args-local:
-                        time_started = time.time()
-
-                        os.remove(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
-
-                        time_delta = time.time() - time_started
-                        logger.debug("Execution Time: Remove duplicate file: {} seconds".format(time_delta))
-                    skipped_count += 1
-                else:
-                    database.update_file_after_download(mtime, downloaded_date, md5, 1, id)
-                    downloaded_count += 1
-                    logger.debug("Download finished: {}".format(relpath))
-            else:
-                logger.warning("Download failed, file: {} error: {}".format(relpath, rsync.stderr.readlines()))
-                failed_count += 1
         else:
             logger.debug("File already downloaded, skipping {}".format(relpath))
             skipped_count += 1
 
         if interrupted:
+            while threading.active_count() > 1:
+                time.sleep(1)
             break
 
     logger.info("Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}".format(downloaded_count, skipped_count, failed_count))
@@ -308,6 +346,8 @@ def encrypt_files():
             logger.debug("Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
 
         if interrupted:
+            while threading.active_count() > 1:
+                time.sleep(1)
             break
 
     ## encrypt
@@ -453,6 +493,8 @@ def write_files():
         database.update_file_after_write(int(time.time()), next_tape, id)
 
         if interrupted:
+            while threading.active_count() > 1:
+                time.sleep(1)
             break
 
     #if recursive:
