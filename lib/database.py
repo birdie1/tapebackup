@@ -20,13 +20,15 @@ class Database:
                     path TEXT NOT NULL UNIQUE,
                     filename_encrypted TEXT UNIQUE,
                     mtime TEXT,
+                    filesize INT,
+                    encrypted_filesize INT,
                     md5sum_file TEXT,
                     md5sum_encrypted TEXT,
                     tape TEXT,
                     downloaded_date TEXT,
                     encrypted_date TEXT,
                     written_date TEXT,
-                    downloaded INT DEFAULT 0,MM
+                    downloaded INT DEFAULT 0,
                     encrypted INT DEFAULT 0,
                     written INT DEFAULT 0,
                     verified_count INT DEFAULT 0,
@@ -155,6 +157,18 @@ class Database:
                     '''
         return self.fetchall_from_database(sql)
 
+    def get_all_files(self):
+        sql = ''' SELECT * FROM files
+                    '''
+        return self.fetchall_from_database(sql)
+
+    def fix_float_timestamps(self, id, new_timestamp):
+        sql = ''' UPDATE files
+                    SET mtime = ?
+                    WHERE id = ?
+                    '''
+        return self.change_entry_in_database(sql, (new_timestamp, id,))
+
     def update_broken_db_encrypt_entry(self, id):
         sql = ''' UPDATE files
                      SET filename_encrypted = NULL
@@ -197,14 +211,15 @@ class Database:
                   VALUES(?,?,?,?) '''
         return self.change_entry_in_database(sql, (filename, path, duplicate_id, downloaded_date,))
 
-    def update_file_after_download(self, mtime, downloaded_date, md5, downloaded, id):
+    def update_file_after_download(self, filesize, mtime, downloaded_date, md5, downloaded, id):
         sql = ''' UPDATE files
-                  SET mtime = ?,
+                  SET filesize = ?,
+                      mtime = ?,
                       downloaded_date = ?,
                       md5sum_file = ?,
                       downloaded = ?
                   WHERE id = ?'''
-        return self.change_entry_in_database(sql, (mtime, downloaded_date, md5, downloaded, id,))
+        return self.change_entry_in_database(sql, (filesize, mtime, downloaded_date, md5, downloaded, id,))
 
     def get_files_to_be_encrypted(self):
         sql = ''' SELECT id, filename, path FROM files 
@@ -219,13 +234,14 @@ class Database:
                   WHERE id = ?'''
         return self.change_entry_in_database(sql, (filename_enc, id,))
 
-    def update_file_after_encrypt(self, encrypted_date, md5sum_encrypted, id):
+    def update_file_after_encrypt(self, filesize, encrypted_date, md5sum_encrypted, id):
         sql = ''' UPDATE files
-                      SET encrypted_date = ?,
+                      SET encrypted_filesize = ?,
+                          encrypted_date = ?,
                           md5sum_encrypted = ?,
                           encrypted = 1
                       WHERE id = ?'''
-        return self.change_entry_in_database(sql, (encrypted_date, md5sum_encrypted, id,))
+        return self.change_entry_in_database(sql, (filesize, encrypted_date, md5sum_encrypted, id,))
 
     def get_full_tape(self, label):
         sql = ''' SELECT id, label, full FROM tapedevices 
@@ -293,9 +309,32 @@ class Database:
                           WHERE id = ?'''
         return self.change_entry_in_database(sql, (dt, label, id,))
 
+    def list_duplicates(self):
+        sql = ''' SELECT files.path, files.mtime, alternative_file_names.path, files.filesize
+                            FROM files, alternative_file_names
+                            WHERE files.id = alternative_file_names.files_id
+                            '''
+        return self.fetchall_from_database(sql)
+
+
+
     def dump_filenames_to_for_tapes(self, label):
         sql = ''' SELECT id, path, filename_encrypted FROM files 
                             WHERE tape = ?
                             '''
         return self.fetchall_from_database(sql, (label,))
+
+    def get_minimum_verified_count(self):
+        sql = ''' SELECT MIN(verified_count) FROM files 
+                            LIMIT 1
+                            '''
+        return self.fetchall_from_database(sql)
+
+    def get_ids_by_verified_count(self, verified_count):
+        sql = ''' SELECT id, filename, tape FROM files 
+                            WHERE tape NOT NULL
+                            AND verified_count = ?
+                            '''
+        return self.fetchall_from_database(sql, (verified_count,))
+
 

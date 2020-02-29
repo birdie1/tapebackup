@@ -15,6 +15,7 @@ import shutil
 import threading
 from lib import Database, Tapelibrary, Tools
 
+
 pname = "Tapebackup"
 pversion = '0.1.1'
 debug = False
@@ -94,9 +95,11 @@ def get_thread(threadnr, id, filename, fullpath, relpath, directory):
         if args.local:
             mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath))))
             md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath)))
+            filesize = os.path.getsize(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath)))
         else:
             mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath))))
             md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
+            filesize = os.path.getsize(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
 
         time_delta = time.time() - time_started
         logger.debug("Execution Time: Building md5sum and mtime: {} seconds".format(time_delta))
@@ -117,7 +120,7 @@ def get_thread(threadnr, id, filename, fullpath, relpath, directory):
                 logger.debug("Execution Time: Remove duplicate file: {} seconds".format(time_delta))
             skipped_count += 1
         else:
-            thread_db.update_file_after_download(mtime, downloaded_date, md5, 1, id)
+            thread_db.update_file_after_download(filesize, mtime, downloaded_date, md5, 1, id)
             downloaded_count += 1
             logger.debug("Download finished: {}".format(relpath))
     else:
@@ -212,6 +215,19 @@ def repair_db():
 
     logger.info("Fixed {} messed up encrypt entries".format(len(broken_p)))
 
+def fix_timestamp_db():
+    fixed = 0
+    files = database.get_all_files()
+    for i in files:
+        try:
+            int(i[4])
+        except TypeError:
+            continue
+        except ValueError:
+            database.fix_float_timestamps(i[0], int(float(i[4])))
+            fixed += 1
+
+    logger.info("Fix Timestamps: fixed: {}, already ok: {}".format(fixed, len(files) - fixed))
 
 def status_db():
     tables = database.get_tables()
@@ -334,8 +350,9 @@ def encrypt_files():
             md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-enc-dir'], filename_enc)))
             logger.debug("Execution Time: md5sum encrypted file: {} seconds".format(time.time() - time_started))
 
+            filesize = os.path.getsize(os.path.abspath('{}/{}'.format(cfg['local-enc-dir'], filename_enc)))
             encrypted_date = int(time.time())
-            database.update_file_after_encrypt(encrypted_date, md5, id)
+            database.update_file_after_encrypt(filesize, encrypted_date, md5, id)
 
             if not args.local:
                 time_started = time.time()
@@ -505,23 +522,26 @@ def restore_file():
     ## TODO: Restore file by given name, path or encrypted name
     pass
 
-def verify_file():
-    ## TODO: Verify random or by given File
-    pass
-
-def verify_tape():
-    ## TODO: - Verify random or by given Tape
-    ##       - Verify filesystem and my be a few files
-    ##       - Verify Tapebackup Database file
-    pass
 
 parser = argparse.ArgumentParser(description="Tape backup from remote or local server to tape library")
 parser.add_argument("-v", "--version", action="store_true", help="Show version and exit")
 
 group01 = parser.add_argument_group()
-group01.add_argument("--debug", action="store_true", help="Set log level to debug")
-group01.add_argument("--info", action="store_true", help="Set log level to info")
-group01.add_argument("--quiet", action="store_true", help="Set log level to error")
+group01.add_argument(
+    "--debug",
+    action="store_true",
+    help="Set log level to debug"
+)
+group01.add_argument(
+    "--info",
+    action="store_true",
+    help="Set log level to info"
+)
+group01.add_argument(
+    "--quiet",
+    action="store_true",
+    help="Set log level to error"
+)
 
 group02 = parser.add_argument_group()
 group02.add_argument("--local", action="store_true", help="Use 'local-data-dir' as data source, not syncing from remote server, only adding to database and not deleting source files")
@@ -537,15 +557,66 @@ subparsers = parser.add_subparsers(title='Commands', dest='command')
 subparser_get = subparsers.add_parser('get', help='Get Files from remote Server')
 subparser_encrypt = subparsers.add_parser('encrypt', help='Enrypt files and build directory for one tape media size')
 subparser_write = subparsers.add_parser('write', help='Write directory into')
-subparser_verify = subparsers.add_parser('verify', help='Verify Files (random or given filename) on Tape')
+
+
+subparser_verify = subparsers.add_parser(
+    'verify',
+    help='Verify Files (random or given filename) on Tape'
+)
+subparser_verify_group = subparser_verify.add_mutually_exclusive_group(required=True)
+subparser_verify_group.add_argument(
+    "-f",
+    "--file",
+    type=str,
+    nargs='?',
+    const='',
+    help="[Default: random file] or specify filename or path/file (Wildcards possible)"
+)
+subparser_verify_group.add_argument(
+    "-t",
+    "--tape",
+    type=str,
+    nargs='?',
+    const='',
+    help="[Default: random tape] or specify filename or path/file (Wildcards possible)"
+)
+subparser_verify.add_argument(
+    "-c",
+    "--count",
+    type=int,
+    default=1,
+    help="[Only if no file/tape specified] Specify max number of files/tapes that will be verified (0 = unlimited) [Default: 1]"
+)
+
+
 subparser_restore = subparsers.add_parser('restore', help='Restore File from Tape')
-subparser_restore.add_argument("-f", "--file", type=str, required=True, help="Specify filename or path/file")
+subparser_restore.add_argument("-f", "--file", type=str, required=True, help="Specify filename or path/file (Wildcards possible)")
+
+subparser_files = subparsers.add_parser(
+    'files',
+    help='File operations'
+)
+#subparser_files.add_argument("-p", "--path", type=str, help="Specify path (Wildcards possible)")
+subparser_files.add_argument("-s", "--short", action="store_true", help="Shorten output to interesting things")
+subsubparser_files = subparser_files.add_subparsers(
+    title='Subcommands',
+    dest='command_sub'
+)
+subsubparser_files.add_parser(
+    'list',
+    help='Show files'
+)
+subsubparser_files.add_parser(
+    'duplicate',
+    help='Show duplicate files'
+)
 
 
 subparser_db = subparsers.add_parser('db', help='Database operations')
 subsubparser_db = subparser_db.add_subparsers(title='Subcommands', dest='command_sub')
 subsubparser_db.add_parser('init', help='Initialize SQLite DB')
 subsubparser_db.add_parser('repair', help='Repair SQLite DB after stopped operation')
+subsubparser_db.add_parser('fix_timestamp', help='Fix float timestamps from program version < 0.1.0')
 subsubparser_db.add_parser('backup', help='Backup SQLite DB to given GIT repo')
 subsubparser_db.add_parser('status', help='Show SQLite Information')
 
@@ -564,8 +635,6 @@ subsubparser_config.add_parser('create_key', help='Create 128 Byte encryption ke
 subparser_debug = subparsers.add_parser('debug', help='Print debug information')
 
 if __name__ == "__main__":
-    ## TODO: Make possible to run script from every path
-
     files_prefix = os.path.abspath(os.path.dirname(sys.argv[0]))
     args = parser.parse_args()
 
@@ -628,10 +697,27 @@ if __name__ == "__main__":
     elif args.command == "write":
         write_files()
     elif args.command == "verify":
-        verify_file()
-        ## verify_tape()
+        from functions.verify import Verify
+        verify = Verify(cfg, database, tapelibrary, tools)
+
+        if args.tape is None:
+            verify.file(args.file, args.count)
+        elif args.file is None:
+            verify.tape(args.tape, args.count)
+
     elif args.command == "restore":
         restore_file()
+    elif args.command == "files":
+        from functions.files import Files
+        files = Files(cfg, database, tapelibrary, tools)
+
+        if args.command_sub == "list":
+            files.list(args.short)
+        elif args.command_sub == "duplicate":
+            files.duplicate()
+        elif args.command_sub is None:
+            parser.print_help()
+
     elif args.command == "tape":
         if args.command_sub == "info":
             tapeinfo()
@@ -644,6 +730,8 @@ if __name__ == "__main__":
             init_db()
         elif args.command_sub == "repair":
             repair_db()
+        elif args.command_sub == "fix_timestamp":
+            fix_timestamp_db()
         elif args.command_sub == "status":
             status_db()
         elif args.command_sub == "backup":
