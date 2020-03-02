@@ -316,7 +316,14 @@ class Database:
                             '''
         return self.fetchall_from_database(sql)
 
-
+    def filename_encrypted_already_used(self, filename_encrypted):
+        sql = ''' SELECT id FROM files
+                  WHERE filename_encrypted = ?
+                  '''
+        if len(self.fetchall_from_database(sql, (filename_encrypted,))) > 0:
+            return True
+        else:
+            return False
 
     def dump_filenames_to_for_tapes(self, label):
         sql = ''' SELECT id, path, filename_encrypted FROM files 
@@ -331,7 +338,7 @@ class Database:
         return self.fetchall_from_database(sql)
 
     def get_ids_by_verified_count(self, verified_count):
-        sql = ''' SELECT id, filename, tape FROM files 
+        sql = ''' SELECT id, filename, filename_encrypted, tape FROM files 
                             WHERE tape NOT NULL
                             AND verified_count = ?
                             '''

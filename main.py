@@ -7,17 +7,12 @@ import argparse
 import os
 import time
 import signal
-import subprocess
-import secrets
-import string
-import random
-import shutil
-import threading
+import psutil
 from lib import Database, Tapelibrary, Tools
 
 
 pname = "Tapebackup"
-pversion = '0.1.1'
+pversion = '0.1.2'
 debug = False
 
 logging.basicConfig(level=logging.DEBUG,
@@ -33,106 +28,30 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-
-def signal_handler(signal, frame):
+def signal_handler(signalo, frame):
     global interrupted
-    global child_process_pid
+    global current_class
     if interrupted:
         print(' Pressed CTRL + C twice, giving up. Please check the database for broken entry!')
-        for i in child_process_pid:
-            os.kill(i, signal)
+
+        parent = psutil.Process(os.getpid())
+        children = parent.children(recursive=True)
+        for process in children:
+            process.send_signal(signal.SIGTERM)
+
         sys.exit(1)
     else:
         interrupted = True
+        current_class.set_interrupted()
         print(' I will stop after current Operation!')
 
 signal.signal(signal.SIGINT, signal_handler)
 interrupted = False
-child_process_pid = []
-downloaded_count = 0
-skipped_count = 0
-failed_count = 0
-active_threads = []
-
-
-def test_backup_pieces(filelist, percent):
-    filecount_to_test = int(len(filelist) * percent / 100)
-    logger.info("Testing {} files md5sum".format(filecount_to_test))
-    for i in range(filecount_to_test):
-        index = random.randrange(0, len(filelist))
-        logger.info("Testing md5sum of file {}".format(filelist[index][3]))
-        if tools.md5sum("{}/{}".format(cfg['local-tape-mount-dir'], filelist[index][1])) != filelist[index][2]:
-            return False
-
-    return True
-
-
-def get_thread(threadnr, id, filename, fullpath, relpath, directory):
-    global child_process_pid
-    global failed_count
-    global downloaded_count
-    global skipped_count
-    global active_threads
-    downloaded = False
-    thread_db = Database(cfg)
-
-    if not args.local:
-        os.makedirs("{}/{}".format(cfg['local-data-dir'], directory), exist_ok=True)
-
-        time_started = time.time()
-        command = ['rsync', '--protect-args', '-ae', 'ssh', '{}:{}'.format(cfg['remote-server'], fullpath),
-                   '{}/{}'.format(cfg['local-data-dir'], directory)]
-        rsync = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
-        child_process_pid.append(rsync.pid)
-
-        if len(rsync.stderr.readlines()) == 0:
-            child_process_pid.remove(rsync.pid)
-            downloaded = True
-        logger.debug("Execution Time: Downloading file: {} seconds".format(time.time() - time_started))
-
-    if args.local or downloaded:
-        time_started = time.time()
-        if args.local:
-            mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath))))
-            md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath)))
-            filesize = os.path.getsize(os.path.abspath("{}/{}".format(cfg['local-base-dir'], relpath)))
-        else:
-            mtime = int(os.path.getmtime(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath))))
-            md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
-            filesize = os.path.getsize(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
-
-        time_delta = time.time() - time_started
-        logger.debug("Execution Time: Building md5sum and mtime: {} seconds".format(time_delta))
-
-        downloaded_date = int(time.time())
-        duplicate = thread_db.get_files_by_md5(md5)
-        if len(duplicate) > 0:
-            logger.info("File downloaded with another name. Storing filename in Database: {}".format(filename))
-            duplicate_id = duplicate[0][0]
-            inserted_id = thread_db.insert_alternative_file_names(filename, relpath, duplicate_id, downloaded_date)
-            thread_db.delete_broken_db_download_entry(id)
-            if not args.local:
-                time_started = time.time()
-
-                os.remove(os.path.abspath("{}/{}".format(cfg['local-data-dir'], relpath)))
-
-                time_delta = time.time() - time_started
-                logger.debug("Execution Time: Remove duplicate file: {} seconds".format(time_delta))
-            skipped_count += 1
-        else:
-            thread_db.update_file_after_download(filesize, mtime, downloaded_date, md5, 1, id)
-            downloaded_count += 1
-            logger.debug("Download finished: {}".format(relpath))
-    else:
-        logger.warning("Download failed, file: {} error: {}".format(relpath, rsync.stderr.readlines()))
-        failed_count += 1
-
-    active_threads.remove(threadnr)
-
 
 ########## main functions from here ##########
 def show_version():
     print("{}: Version {}".format(pname, pversion))
+
 
 def config_override_from_cmd():
     if args.database is not None:
@@ -165,7 +84,7 @@ def print_debug_info():
     print("Local Tape Mount Directory: {}".format(cfg['local-tape-mount-dir']))
     print("Encryption Key: {}".format(cfg['enc-key']))
     i = 0
-    for j in cfg['lto-ignore-tapes']:
+    for j in cfg['lto-blacklist']:
         print("Ignored Tape {}, Label: {}".format(i, j))
         i += 1
     print("")
@@ -184,8 +103,7 @@ def print_debug_info():
 
 
 def create_key():
-    alphabet = string.ascii_letters + string.digits
-    print(''.join(secrets.choice(alphabet) for i in range(128)))
+    print(tools.create_encryption_key())
 
 
 def init_db():
@@ -215,6 +133,7 @@ def repair_db():
 
     logger.info("Fixed {} messed up encrypt entries".format(len(broken_p)))
 
+
 def fix_timestamp_db():
     fixed = 0
     files = database.get_all_files()
@@ -228,6 +147,7 @@ def fix_timestamp_db():
             fixed += 1
 
     logger.info("Fix Timestamps: fixed: {}, already ok: {}".format(fixed, len(files) - fixed))
+
 
 def status_db():
     tables = database.get_tables()
@@ -243,284 +163,6 @@ def status_db():
 def backup_db():
     database.export('{}/tapebackup-{}.sql'.format(cfg['database-backup-git-path'], int(time.time())))
     ## TODO: Compare to old git and commit if changed
-
-
-def get_files():
-    global interrupted
-    global child_process_pid
-    global downloaded_count
-    global skipped_count
-    global failed_count
-    global active_threads
-
-    if args.local:
-        logger.info("Retrieving file list from server LOCAL directory '{}'".format(os.path.abspath(cfg['local-data-dir'])))
-        result = tools.ls_recursive(os.path.abspath(cfg['local-data-dir']))
-    else:
-        time_started = time.time()
-
-        logger.info("Retrieving file list from server '{}' directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
-        commands = ['ssh', cfg['remote-server'], 'find "{}" -type f'.format(cfg['remote-data-dir'])]
-        ssh = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        result = ssh.stdout.readlines()
-        logger.info("Got file list from server {} directory '{}'".format(cfg['remote-server'], cfg['remote-data-dir']))
-
-        logger.debug("Execution Time: Building filelist: {} seconds".format(time.time() - time_started))
-
-    file_count_total = len(result)
-    logger.info("Found {} entries. Start to process.".format(file_count_total))
-
-    downloaded_count = 0
-    skipped_count = 0
-    failed_count = 0
-
-    for fpath in result:
-        if isinstance(fpath, bytes):
-            fullpath = fpath.decode("UTF-8").rstrip()
-            relpath = tools.strip_base_path(fullpath, cfg['remote-base-dir'])
-        else:
-            fullpath = fpath.rstrip()
-            relpath = tools.strip_base_path(fullpath, cfg['local-base-dir'])
-        logger.debug("Processing {}".format(fullpath))
-
-        filename = tools.strip_path(fullpath)
-        directory = tools.strip_filename(relpath)
-
-        if not database.check_if_file_exists_by_path(relpath):
-            for i in range(0, cfg['threads']):
-                if i not in active_threads:
-                    next_thread = i
-                    break
-            logger.info("Starting Thread #{}, processing: {}".format(next_thread, fullpath))
-            id = database.insert_file(filename, relpath)
-            logger.debug("Inserting file into database. Fileid: {}".format(id))
-
-            active_threads.append(next_thread)
-            x = threading.Thread(target=get_thread, args=(next_thread, id, filename, fullpath, relpath, directory,), daemon=True)
-            x.start()
-
-            while threading.active_count() > cfg['threads']:
-                time.sleep(10)
-
-        else:
-            logger.debug("File already downloaded, skipping {}".format(relpath))
-            skipped_count += 1
-
-        if interrupted:
-            while threading.active_count() > 1:
-                time.sleep(1)
-            break
-
-    logger.info("Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}".format(downloaded_count, skipped_count, failed_count))
-
-
-def encrypt_files():
-    global interrupted
-    global child_process_pid
-
-    logger.info("Starting encrypt files job")
-
-    files = database.get_files_to_be_encrypted()
-    alphabet = string.ascii_letters + string.digits
-
-    for file in files:
-        id = file[0]
-        filepath = file[2]
-
-        logger.info("Processing: id: {}, filename: {}".format(id, file[1]))
-
-        filename_enc_helper = ''.join(secrets.choice(alphabet) for i in range(64))
-        filename_enc = "{}.enc".format(filename_enc_helper)
-
-        database.update_filename_enc(filename_enc, id)
-
-        time_started = time.time()
-
-        if not args.local:
-            command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', os.path.abspath('{}/{}'.format(cfg['local-data-dir'], filepath)), '-out', os.path.abspath('{}/{}'.format(cfg['local-enc-dir'], filename_enc)), '-k', cfg['enc-key']]
-        else:
-            command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', os.path.abspath('{}/{}'.format(cfg['local-base-dir'], filepath)), '-out', os.path.abspath('{}/{}'.format(cfg['local-enc-dir'], filename_enc)), '-k', cfg['enc-key']]
-        openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
-        child_process_pid = openssl.pid
-
-
-        if len(openssl.stderr.readlines()) == 0:
-            logger.debug("Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
-            time_started = time.time()
-            md5 = tools.md5sum(os.path.abspath("{}/{}".format(cfg['local-enc-dir'], filename_enc)))
-            logger.debug("Execution Time: md5sum encrypted file: {} seconds".format(time.time() - time_started))
-
-            filesize = os.path.getsize(os.path.abspath('{}/{}'.format(cfg['local-enc-dir'], filename_enc)))
-            encrypted_date = int(time.time())
-            database.update_file_after_encrypt(filesize, encrypted_date, md5, id)
-
-            if not args.local:
-                time_started = time.time()
-                os.remove(os.path.abspath("{}/{}".format(cfg['local-data-dir'], filepath)))
-                logger.debug("Execution Time: Remove file after encryption: {} seconds".format(time.time() - time_started))
-        else:
-            logger.warning("encrypt file failed, file: {} error: {}".format(id, openssl.stderr.readlines()))
-            logger.debug("Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
-
-        if interrupted:
-            while threading.active_count() > 1:
-                time.sleep(1)
-            break
-
-    ## encrypt
-    # openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -in 'videofile.mp4' -out test.enc -k supersicherespasswort
-    ## decrypt
-    # openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -in test.enc -out test.mp4
-
-
-def tapeinfo():
-    print("Loaderinfo from Device {}:".format(cfg['devices']['tapelib']))
-    for i in tapelibrary.loaderinfo():
-        print("    {}".format(i.decode('utf-8').rstrip()))
-
-    print("")
-    print("Tapeinfo from Device {}:".format(cfg['devices']['tapedrive']))
-    for i in tapelibrary.tapeinfo():
-        print("    {}".format(i.decode('utf-8').rstrip()))
-
-    print("")
-    print("MTX Info from Device {}:".format(cfg['devices']['tapelib']))
-    for i in tapelibrary.mtxinfo():
-        print("    {}".format(i.decode('utf-8').rstrip()))
-
-def tapestatus():
-    tapes, tapes_to_remove = tapelibrary.get_tapes_tags_from_library()
-
-    print("")
-    print("Ignored Tapes ({}) due to config: {}".format(len(cfg['lto-ignore-tapes']), cfg['lto-ignore-tapes']))
-    full = []
-    for i in database.get_full_tapes():
-        full.append(i[0])
-    print("Full tapes: {}".format(full))
-
-    print("")
-    print("Free tapes in library({}): {}".format(len(tapes), tapes))
-
-    print("")
-    print("Please remove following tapes from library ({}): {}".format(len(tapes_to_remove), tapes_to_remove))
-
-
-def write_files():
-    recursive = False
-    tapes, tapes_to_remove = tapelibrary.get_tapes_tags_from_library()
-    if len(tapes_to_remove) > 0:
-        logger.warning("These tapes are full, please remove from library: {}".format(tapes_to_remove))
-
-    if len(tapes) == 0:
-        logger.error("No free Tapes in Library, but you can remove these full once: {}".format(tapes_to_remove))
-        sys.exit(0)
-
-    next_tape = tapes.pop(0)
-
-    logger.info("Using tape {} for writing".format(next_tape))
-
-    ## Load tape, mount and maybe format tapedevice
-    tapelibrary.load(next_tape)
-    tapelibrary.ltfs()
-
-    ## Write used tape into database
-    database.write_tape_into_database(next_tape)
-
-    time_started = time.time()
-    st = os.statvfs(cfg['local-tape-mount-dir'])
-    logger.info("Tape: Used: {} ({} GB), Free: {} ({} GB), Total: {} ({} GB)".format(
-                                                            (st.f_blocks - st.f_bfree) * st.f_frsize,
-                                                            int((st.f_blocks - st.f_bfree) * st.f_frsize / 1024 / 1024 / 1024),
-                                                            (st.f_bavail * st.f_frsize),
-                                                            int((st.f_bavail * st.f_frsize) / 1024 / 1024 / 1024),
-                                                            (st.f_blocks * st.f_frsize),
-                                                            int((st.f_blocks * st.f_frsize) / 1024 / 1024 / 1024)
-    ))
-    logger.debug("Execution Time: Getting tape space info: {} seconds".format(time.time() - time_started))
-
-    files = database.get_files_to_be_written()
-    for file in files:
-        id = file[0]
-        filename = file[1]
-        md5 = file[2]
-        orig_filename = file[3]
-
-        ##Get free tapesize, filesize and compare with a space blocker of 1GB and test 5% of the written media
-        st = os.statvfs(cfg['local-tape-mount-dir'])
-        free = (st.f_bavail * st.f_frsize)
-        filesize = os.path.getsize("{}/{}".format(cfg['local-enc-dir'], filename))
-
-        logger.debug("Tape: Free: {}, Used: {}, Fileid: {}, Filesize: {}".format(
-            free,
-            int((st.f_blocks - st.f_bfree) * st.f_frsize),
-            id,
-            filesize
-        ))
-
-        if filesize > ( free - 10737418240 ):
-            logger.debug("Writing fileid {} to tape".format(id))
-            logger.warning("Tape is full: I am testing now a few media, writing summary into database and unloading tape")
-
-            if not test_backup_pieces(database.get_files_by_tapelabel(next_tape), 5):
-                logger.error("md5sum on tape not equal to database. Stopping everything. Need manual check of the tape!")
-                ## TODO: Mache irgendwas vernünftiges!
-                sys.exit(1)
-
-            database.mark_tape_as_full(next_tape, int(time.time()))
-
-            ## WRITE Database encrypted on tape
-            time_started = time.time()
-            dt = int(time.time())
-            command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', cfg['database'], '-out', '{}/tapebackup_{}.db.enc'.format(cfg['local-tape-mount-dir'], dt), '-k', cfg['enc-key']]
-            openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if len(openssl.stderr.readlines()) > 0:
-                logger.error("Writing Database to Tape failed")
-                sys.exit(1)
-
-            ## WRITE Textfile containing (encryped_name|original_fullpath) of all files encrypted to tape
-            dump = database.dump_filenames_to_for_tapes(next_tape)
-            with open('tapebackup_{}.txt'.format(dt), 'w') as f:
-                for line in dump:
-                    f.write('"{}";"{}";"{}"\n'.format(line[0], line[1], line[2]))
-            command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', 'tapebackup_{}.txt'.format(dt), '-out', '{}/tapebackup_{}.txt.enc'.format(cfg['local-tape-mount-dir'], dt), '-k', cfg['enc-key']]
-            openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if len(openssl.stderr.readlines()) > 0:
-                logger.error("Writing Textfile to Tape failed")
-                sys.exit(1)
-            os.remove('tapebackup_{}.txt'.format(dt))
-            logger.debug("Execution Time: Encrypt and write databse to tape: {} seconds".format(time.time() - time_started))
-
-            ## DELETE all Files, that has been transfered to tape
-            time_started = time.time()
-            for i in database.get_files_by_tapelabel(next_tape):
-                if os.path.exists("{}/{}".format(cfg['local-enc-dir'], i[1])):
-                    logger.info("Deleting encrypted file: {} ({})".format(i[3], i[1]))
-                    os.remove("{}/{}".format(cfg['local-enc-dir'], i[1]))
-            logger.debug("Execution Time: Deleted encrypted files written to tape: {} seconds".format(time.time() - time_started))
-
-            ## Unload tape
-            tapelibrary.unload()
-            recursive = True
-            break
-
-        logger.info("Writing file to tape: {}".format(orig_filename))
-        time_started = time.time()
-        shutil.copy2("{}/{}".format(cfg['local-enc-dir'], filename), "{}/".format(cfg['local-tape-mount-dir']))
-        logger.debug("Execution Time: Copy file to tape: {} seconds".format(time.time() - time_started))
-        database.update_file_after_write(int(time.time()), next_tape, id)
-
-        if interrupted:
-            while threading.active_count() > 1:
-                time.sleep(1)
-            break
-
-    #if recursive:
-    #    write_files()
-
-
-def restore_file():
-    ## TODO: Restore file by given name, path or encrypted name
-    pass
 
 
 parser = argparse.ArgumentParser(description="Tape backup from remote or local server to tape library")
@@ -652,7 +294,6 @@ if __name__ == "__main__":
         show_version()
         sys.exit(0)
 
-
     if args.config is not None:
         cfgfile = "{}/{}".format(files_prefix, args.config)
     elif debug:
@@ -662,7 +303,6 @@ if __name__ == "__main__":
 
     with open(cfgfile, 'r') as ymlfile:
         cfg = yaml.full_load(ymlfile)
-
 
     if not os.path.isfile(cfg['database']) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
         logger.error("Database does not exist: {}. Please execute './main.py db init' first".format(cfg['database']))
@@ -691,40 +331,55 @@ if __name__ == "__main__":
     config_override_from_cmd()
 
     if args.command == "get":
-        get_files()
+        from functions.files import Files
+        current_class = Files(cfg, database, tapelibrary, tools)
+        current_class.get()
+
     elif args.command == "encrypt":
-        encrypt_files()
+        from functions.encryption import Encryption
+        current_class = Encryption(cfg, database, tapelibrary, tools, args.local)
+        current_class.encrypt()
+
     elif args.command == "write":
-        write_files()
+        from functions.tape import Tape
+        current_class = Tape(cfg, database, tapelibrary, tools)
+        current_class.write()
+
     elif args.command == "verify":
         from functions.verify import Verify
-        verify = Verify(cfg, database, tapelibrary, tools)
-
+        current_class = Verify(cfg, database, tapelibrary, tools)
         if args.tape is None:
-            verify.file(args.file, args.count)
+            current_class.file(args.file, args.count)
         elif args.file is None:
-            verify.tape(args.tape, args.count)
+            current_class.tape(args.tape, args.count)
 
     elif args.command == "restore":
-        restore_file()
+        from functions.encryption import Encryption
+        current_class = Encryption(cfg, database, tapelibrary, tools, args.local)
+        current_class.restore()
+
     elif args.command == "files":
         from functions.files import Files
-        files = Files(cfg, database, tapelibrary, tools)
+        current_class = Files(cfg, database, tapelibrary, tools)
 
         if args.command_sub == "list":
-            files.list(args.short)
+            current_class.list(args.short)
         elif args.command_sub == "duplicate":
-            files.duplicate()
+            current_class.duplicate()
         elif args.command_sub is None:
             parser.print_help()
 
     elif args.command == "tape":
+        from functions.tape import Tape
+        current_class = Tape(cfg, database, tapelibrary, tools)
+
         if args.command_sub == "info":
-            tapeinfo()
+            current_class.info()
         elif args.command_sub == "status":
-            tapestatus()
+            current_class.status()
         elif args.command_sub is None:
             parser.print_help()
+
     elif args.command == "db":
         if args.command_sub == "init":
             init_db()

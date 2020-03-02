@@ -3,8 +3,54 @@ This program downloads files via SSH/Rsync from remote server, encrypt them usin
 
 It stores all necessary information into a SQLite database. It stores original filenames, encrypted filenames, hashsums, tapedevices and Timestamps of operations
 
+If you want to backup different "projects" with the same library, either clone the repository again or specify different configfile and databasefile.Then specify "lto-whitelist" instead blacklisting tapes.
+
 **Caution**: It will not detect changes on same filename. Use it only for non changing files, like mediafiles or pictures.
 
+#### Help
+<pre>
+user@server ~ (git)-[master] # ./main.py --help     
+usage: main.py [-h] [-v] [--debug] [--info] [--quiet] [--local] [-c CONFIG] [-D DATABASE] [-s SERVER] [-d DATA_DIR] [-l TAPELIB] [-t TAPEDRIVE] [-m TAPE_MOUNT] {get,encrypt,write,verify,restore,files,db,tape,config,debug} ...
+
+Tape backup from remote or local server to tape library
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -v, --version         Show version and exit
+
+  --debug               Set log level to debug
+  --info                Set log level to info
+  --quiet               Set log level to error
+
+  --local               Use 'local-data-dir' as data source, not syncing from remote server, only adding to database and not deleting source files
+  -c CONFIG, --config CONFIG
+                        Specify configuration yaml file [Default: config.yml]
+  -D DATABASE, --database DATABASE
+                        Specify database [Default: Read from config file]
+  -s SERVER, --server SERVER
+                        Specify remote server [Default: Read from config file]
+  -d DATA_DIR, --data-dir DATA_DIR
+                        Specify 'local data directory' [Default: Read from config file]
+  -l TAPELIB, --tapelib TAPELIB
+                        Specify tape library device [Default: Read from config file]
+  -t TAPEDRIVE, --tapedrive TAPEDRIVE
+                        Specify tape drive device [Default: Read from config file]
+  -m TAPE_MOUNT, --tape-mount TAPE_MOUNT
+                        Specify 'tape mount directory' [Default: Read from config file]
+
+Commands:
+  {get,encrypt,write,verify,restore,files,db,tape,config,debug}
+    get                 Get Files from remote Server
+    encrypt             Enrypt files and build directory for one tape media size
+    write               Write directory into
+    verify              Verify Files (random or given filename) on Tape
+    restore             Restore File from Tape
+    files               File operations
+    db                  Database operations
+    tape                Tapelibrary operations
+    config              Configuration operations
+    debug               Print debug information
+</pre>
 
 ## Gettings started
 ### Prerequisites

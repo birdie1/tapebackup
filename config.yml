@@ -2,9 +2,16 @@
 threads: 4
 
 ## Specify taped that are not allowed to use
-lto-ignore-tapes:
+## CAUTION: Applies only if 'lto-whitelist' is empty
+lto-blacklist:
   - Z00001L5
   - Z00002L5
+
+## Specify tapes which ONLY are allowed to use
+## CAUTION: If you enter tapes here, lto-blacklist will be ignored. Only tapes from whitelist will be considered for writing
+lto-whitelist:
+#  - Y00001L5
+#  - Y00002L5
 
 ## Specify tapelibrary and tapedrive devices
 devices:
@@ -37,6 +44,9 @@ local-data-dir: "test-download-dir"
 
 ## Specify directory where encrypted files are stored
 local-enc-dir: "test-enc-dir"
+
+## Specify verify dir (Should have minimum space of biggest file, ramdisk would be perfect)
+local-verify-dir: "/tmp"
 
 ## Specify directory where tapedrive is mounted, will be used to write backups to
 local-tape-mount-dir: "/mnt/tapedrive"

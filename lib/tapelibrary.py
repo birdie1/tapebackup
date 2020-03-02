@@ -7,6 +7,7 @@ import time
 
 logger = logging.getLogger()
 
+
 class Tapelibrary:
     def __init__(self, config, database):
         self.config = config
@@ -20,24 +21,44 @@ class Tapelibrary:
         tag_in_tapelib = []
         tags_to_remove_from_library = []
 
+        try:
+            lto_whitelist = len(self.config['lto-whitelist'])
+        except TypeError:
+            lto_whitelist = None
+        except KeyError:
+            lto_whitelist = None
+
         for i in mtx.stdout.readlines():
             line = i.decode('utf-8').rstrip().lstrip()
             if line.find('VolumeTag') != -1:
                 tag = line[line.find('=') + 1:].rstrip().lstrip()
-                if tag in self.config['lto-ignore-tapes']:
-                    logger.debug('Ignore Tag {} because exists in ignore list in config'.format(tag))
-                elif len(self.database.get_full_tape(tag)) > 0:
-                    logger.debug('Ignore Tag {} because exists in database and is full'.format(tag))
-                    tags_to_remove_from_library.append(tag)
+
+                ### If blacklisting is in use
+                if lto_whitelist == 0 or lto_whitelist is None:
+                    if tag in self.config['lto-blacklist']:
+                        logger.debug('Ignore Tag {} because exists in ignore list in config'.format(tag))
+                    elif len(self.database.get_full_tape(tag)) > 0:
+                        logger.debug('Ignore Tag {} because exists in database and is full'.format(tag))
+                        tags_to_remove_from_library.append(tag)
+                    else:
+                        tag_in_tapelib.append(tag)
                 else:
-                    tag_in_tapelib.append(tag)
+                    ### If whitelisting is in use
+                    if tag in self.config['lto-whitelist'] and len(self.database.get_full_tape(tag)) > 0:
+                        logger.debug('Ignore Tag {} because exists in lto-whitelist, database and is full'.format(tag))
+                        tags_to_remove_from_library.append(tag)
+                    elif tag in self.config['lto-whitelist']:
+                        logger.debug("Tag {} exists in lto whitelist and is ready to use.".format(tag))
+                        tag_in_tapelib.append(tag)
+                    else:
+                        logger.debug('Ignore Tag {} because it is not in lto-whitelist'.format(tag))
 
         logger.debug("Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
         logger.debug("Got following tags for usage: {}".format(tag_in_tapelib))
         return tag_in_tapelib, tags_to_remove_from_library
 
     def get_current_tag_in_transfer_element(self):
-        commands = ['mtx', '-f', self.config['devices']['tapelib'] , 'status']
+        commands = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
         mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         for i in mtx.stdout.readlines():
