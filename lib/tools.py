@@ -1,6 +1,7 @@
 import logging
 import hashlib
 import os
+import re
 import math
 import string
 import secrets
@@ -49,9 +50,47 @@ class Tools:
         s = round(size_bytes / p, 2)
         return "%s %s" % (s, size_name[i])
 
+    def back_convert_size(self, size):
+        units = {"B": 1, "K": 2 ** 10, "M": 2 ** 20, "G": 2 ** 30, "T": 2 ** 40, "P": 2 ** 50, "E": 2 ** 60}
+
+        m = re.search('(\d*)\s*(\w*)', size)
+        number = m.group(1)
+        if m.group(2):
+            unit = m.group(2)
+        else:
+            unit = "B"
+        return int(float(number) * units[unit])
+
     def create_encryption_key(self):
         return ''.join(secrets.choice(self.alphabet) for i in range(128))
 
     def create_filename_encrypted(self):
         filename_enc_helper = ''.join(secrets.choice(self.alphabet) for i in range(64))
         return "{}.enc".format(filename_enc_helper)
+
+    def folder_size(self, path):
+        total = 0
+        for entry in os.scandir(path):
+            if entry.is_file():
+                total += entry.stat().st_size
+            elif entry.is_dir():
+                total += self.folder_size(entry.path)
+        return total
+
+    def calculate_over_max_storage_usage(self, new_file_size):
+        if self.config['max_storage_usage'] == '':
+            return False
+        current_size = self.folder_size(self.config['local-data-dir']) \
+                       + self.folder_size(self.config['local-enc-dir']) \
+                       + self.folder_size(self.config['local-verify-dir'])
+
+        if new_file_size == -1:
+            if current_size >= self.back_convert_size(self.config['max_storage_usage']):
+                return True
+            else:
+                return False
+        else:
+            if (current_size + new_file_size) >= self.back_convert_size(self.config['max_storage_usage']):
+                return True
+            else:
+                return False

@@ -108,6 +108,11 @@ class Files:
         logger.info("Found {} entries. Start to process.".format(file_count_total))
 
         for fpath in result:
+            if self.tools.calculate_over_max_storage_usage(-1):
+                while threading.active_count() > 1:
+                    time.sleep(1)
+                logger.warning("max-storage-size reached, exiting!")
+                break
             if isinstance(fpath, bytes):
                 fullpath = fpath.decode("UTF-8").rstrip()
                 relpath = self.tools.strip_base_path(fullpath, self.config['remote-base-dir'])

@@ -37,6 +37,13 @@ remote-server: "sever.example.com"
 remote-base-dir: "/mnt/bigDataStorage"
 remote-data-dir: "/mnt/bigDataStorage/Videos"
 
+## Specify maximum storage usage o local side (local-data-dir + local-enc-dir + local-verify-dir)
+##   - In order to run correctly it must be more than one lto tape size
+##   - On 'get' function it can only detect already over max_storage_size as the size is not calculated before download
+##   - CAUTION: Defending on your filesystem and how many folders do you have, this can slowdown every operation seriously
+## Use Number[Unit] (K/M/G/T/P/E or nothing for Byte), if nothing specified, it will be not limited by program
+max_storage_usage:
+
 ## Specify local datadir and basedir
 ## local-base-dir is only necessary if you want to backup from local directory
 local-base-dir: ""
