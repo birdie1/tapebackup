@@ -50,3 +50,8 @@ local-verify-dir: "/tmp"
 
 ## Specify directory where tapedrive is mounted, will be used to write backups to
 local-tape-mount-dir: "/mnt/tapedrive"
+
+## Specify how many percent of files or count of files will be verified after writing to tape
+## verify_files: "5%"
+## verify_files: 20
+verify-files: "5%"

@@ -64,8 +64,12 @@ class Tape:
         print("Please remove following tapes from library ({}): {}".format(len(tapes_to_remove), tapes_to_remove))
 
 
-    def test_backup_pieces(self, filelist, percent):
-        filecount_to_test = int(len(filelist) * percent / 100)
+    def test_backup_pieces(self, filelist, verify_files):
+        if type(verify_files) == int:
+            filecount_to_test = verify_files
+        else:
+            filecount_to_test = int(len(filelist) * int(verify_files[0:verify_files.index("%")]) / 100)
+
         logger.info("Testing {} files md5sum".format(filecount_to_test))
         for i in range(filecount_to_test):
             index = random.randrange(0, len(filelist))
@@ -98,7 +102,7 @@ class Tape:
         logger.warning(
             "Tape is full: I am testing now a few media, writing summary into database and unloading tape")
 
-        if not self.test_backup_pieces(self.database.get_files_by_tapelabel(tape), 5):
+        if not self.test_backup_pieces(self.database.get_files_by_tapelabel(tape), self.config['verify-files']):
             logger.error(
                 "md5sum on tape not equal to database. Stopping everything. Need manual check of the tape!")
             logger.error("If you do not use this tape anymore, or want to write all data again, you need to manual "
