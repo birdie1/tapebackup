@@ -78,7 +78,7 @@ class Tools:
         return total
 
     def calculate_over_max_storage_usage(self, new_file_size):
-        if self.config['max_storage_usage'] == '':
+        if self.config['max_storage_usage'] == '' or self.config['max_storage_usage'] == None:
             return False
         current_size = self.folder_size(self.config['local-data-dir']) \
                        + self.folder_size(self.config['local-enc-dir']) \
