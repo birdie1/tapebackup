@@ -30,8 +30,6 @@ class Db:
             logger.info("Fixing Database ID: {}".format(file[0]))
             self.database.delete_broken_db_entry(file[0])
 
-        logger.info("Fixed {} messed up download entries".format(len(broken_d)))
-
         broken_p = self.database.get_broken_db_encrypt_entry()
         for file in broken_p:
             if os.path.isfile("{}/{}".format(self.config['local-enc-dir'], file[1])):
@@ -39,8 +37,6 @@ class Db:
 
             logger.info("Fixing Database ID: {}".format(file[0]))
             self.database.update_broken_db_encrypt_entry(file[0])
-
-        logger.info("Fixed {} messed up encrypt entries".format(len(broken_p)))
 
         delete_all_missing_files = False
         no2all = False
@@ -71,6 +67,8 @@ class Db:
 
                 if no2all:
                     break
+        logger.info("Fixed {} messed up download entries".format(len(broken_d)))
+        logger.info("Fixed {} messed up encrypt entries".format(len(broken_p)))
         logger.info("Deleted {} db entries with missing files".format(delete_m))
 
 
