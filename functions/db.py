@@ -28,7 +28,7 @@ class Db:
                 os.remove("{}/{}".format(self.config['local-data-dir'], file[1]))
 
             logger.info("Fixing Database ID: {}".format(file[0]))
-            self.database.delete_broken_db_download_entry(file[0])
+            self.database.delete_broken_db_entry(file[0])
 
         logger.info("Fixed {} messed up download entries".format(len(broken_d)))
 
@@ -41,6 +41,38 @@ class Db:
             self.database.update_broken_db_encrypt_entry(file[0])
 
         logger.info("Fixed {} messed up encrypt entries".format(len(broken_p)))
+
+        delete_all_missing_files = False
+        no2all = False
+        delete_m = 0
+        all_encrypt = self.database.get_files_to_be_written()
+        for file in all_encrypt:
+            enc_name = file[1]
+            if not os.path.isfile("{}/{}".format(self.config['local-enc-dir'], enc_name)):
+                delete_this = False
+                if not delete_all_missing_files:
+                    while True:
+                        change = input("Encrypted file {} not found, do you want delete entry from database? (Yes/No/All/No2All)?[Y/n/a/2]: ".format(enc_name))
+                        if change == "a":
+                            delete_all_missing_files = True
+                            break
+                        elif change == "n":
+                            break
+                        elif change == "2":
+                            no2all = True
+                            break
+                        else:
+                            delete_this = True
+                            break
+                if delete_this or delete_all_missing_files:
+                    logger.warning("Encrypted file {} (Id: {}) not found. cleaning up (delete) database entry".format(enc_name, file[0]))
+                    self.database.delete_broken_db_entry(file[0])
+                    delete_m += 1
+
+                if no2all:
+                    break
+        logger.info("Deleted {} db entries with missing files".format(delete_m))
+
 
     def fix_timestamp(self):
         fixed = 0

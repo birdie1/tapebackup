@@ -145,7 +145,7 @@ class Database:
                     '''
         return self.fetchall_from_database(sql)
 
-    def delete_broken_db_download_entry(self, id):
+    def delete_broken_db_entry(self, id):
         sql = ''' DELETE from files
                       WHERE id = ?'''
         self.change_entry_in_database(sql, (id,))
