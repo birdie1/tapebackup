@@ -77,7 +77,7 @@ class Files:
                 logger.info("File downloaded with another name. Storing filename in Database: {}".format(filename))
                 duplicate_id = duplicate[0][0]
                 inserted_id = thread_db.insert_alternative_file_names(filename, relpath, duplicate_id, downloaded_date)
-                thread_db.delete_broken_db_download_entry(id)
+                thread_db.delete_broken_db_entry(id)
                 if not self.local_files:
                     time_started = time.time()
 
