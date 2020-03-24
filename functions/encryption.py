@@ -107,6 +107,10 @@ class Encryption:
                     time.sleep(1)
                 break
 
+            ## Multithreading fix: Wait for all threads to finish, otherwise one file get encrypted twice!
+            while threading.active_count() > 1:
+                time.sleep(1)
+
         ## encrypt
         # openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -in 'videofile.mp4' -out test.enc -k supersicherespasswort
         ## decrypt
