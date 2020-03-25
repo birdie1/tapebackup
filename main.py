@@ -5,7 +5,6 @@ import sys
 import logging
 import argparse
 import os
-import time
 import signal
 import psutil
 from lib import Database, Tapelibrary, Tools
@@ -105,6 +104,22 @@ def print_debug_info():
 def create_key():
     print(tools.create_encryption_key())
 
+def check_requirements():
+    if not os.path.isfile(cfg['database']):
+        logger.error("Database does not exist: {}. Please execute './main.py db init' first".format(cfg['database']))
+        sys.exit(0)
+    if cfg['enc-key'] == "" or len(cfg['enc-key']) < 128:
+        logger.error(
+            "Encryption key is empty, please use at least 128 Byte Key, use './main.py config create_key' to create a random key")
+        sys.exit(0)
+
+    if not os.path.isdir(cfg['local-data-dir']):
+        logger.error("'local-data-dir' not specified or does not exist")
+        sys.exit(0)
+    if not os.path.isdir(cfg['local-enc-dir']):
+        logger.error("'local-enc-dir' not specified or does not exist")
+        sys.exit(0)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tape backup from remote or local server to tape library")
     parser.add_argument("-v", "--version", action="store_true", help="Show version and exit")
@@ -173,6 +188,7 @@ if __name__ == "__main__":
     subsubparser_config.add_parser('create_key', help='Create 128 Byte encryption key')
 
     subparser_debug = subparsers.add_parser('debug', help='Print debug information')
+    subparser_develop = subparsers.add_parser('develop', help='Generic function for developing new stuff')
 
     files_prefix = os.path.abspath(os.path.dirname(sys.argv[0]))
     args = parser.parse_args()
@@ -201,22 +217,14 @@ if __name__ == "__main__":
     with open(cfgfile, 'r') as ymlfile:
         cfg = yaml.full_load(ymlfile)
 
-    if not os.path.isfile(cfg['database']) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
-        logger.error("Database does not exist: {}. Please execute './main.py db init' first".format(cfg['database']))
-        sys.exit(0)
-    if (cfg['enc-key'] == "" or len(cfg['enc-key']) < 128) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
-        logger.error("Encryption key is empty, please use at least 128 Byte Key, use './main.py config create_key' to create a random key")
-        sys.exit(0)
+    if args.command != "db" and args.command != "config" and args.command != "debug":
+        check_requirements()
+    else:
+        if args.command_sub != "init" and args.command_sub != "create_key":
+            check_requirements()
+        elif args.command_sub == "init" and os.path.isfile(cfg['database']):
+            logger.warning("Database file already exists. Just updating!")
 
-    if not os.path.isdir(cfg['local-data-dir']) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
-        logger.error("'local-data-dir' not specified or does not exist")
-        sys.exit(0)
-    if not os.path.isdir(cfg['local-enc-dir']) and args.command != "initDB" and args.command != "createKey" and args.command != "debug":
-        logger.error("'local-enc-dir' not specified or does not exist")
-        sys.exit(0)
-
-    if args.command == "initDB" and os.path.isfile(cfg['database']):
-        logger.warning("Database file already exists. Just updating!")
 
     database = Database(cfg)
     tapelibrary = Tapelibrary(cfg, database)
@@ -296,11 +304,15 @@ if __name__ == "__main__":
         elif args.command_sub is None:
             parser.print_help()
 
-    elif args.command == "db":
+    elif args.command == "config":
         if args.command_sub == "create_key":
             create_key()
         elif args.command_sub is None:
             parser.print_help()
+
+    elif args.command == "develop":
+        ## For debugging / programming pruspose only
+        print(tools.calculate_over_max_storage_usage(2000000000))
 
 
 
