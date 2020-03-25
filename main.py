@@ -237,7 +237,7 @@ if __name__ == "__main__":
 
     if args.command == "get":
         from functions.files import Files
-        current_class = Files(cfg, database, tapelibrary, tools)
+        current_class = Files(cfg, database, tapelibrary, tools, args.local)
         current_class.get()
 
     elif args.command == "encrypt":
