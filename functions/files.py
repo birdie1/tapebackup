@@ -140,7 +140,7 @@ class Files:
                 x.start()
 
                 while threading.active_count() > self.config['threads']:
-                    time.sleep(10)
+                    time.sleep(0.2)
 
             else:
                 logger.debug("File already downloaded, skipping {}".format(relpath))
