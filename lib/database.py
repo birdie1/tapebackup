@@ -51,7 +51,8 @@ class Database:
                     filename TEXT NOT NULL,
                     path TEXT NOT NULL UNIQUE,
                     files_id INT NOT NULL,
-                    date TEXT 
+                    date TEXT ,
+                    deleted INT DEFAULT 0
                     );'''
 
         try:
@@ -344,4 +345,27 @@ class Database:
                             '''
         return self.fetchall_from_database(sql, (verified_count,))
 
+    def get_not_deleted_files(self):
+        sql = ''' SELECT id, path FROM files
+                            WHERE deleted != 1
+                            '''
+        return self.fetchall_from_database(sql)
+
+    def get_not_deleted_alternative_files(self):
+        sql = ''' SELECT id, path FROM alternative_file_names
+                            WHERE deleted != 1
+                            '''
+        return self.fetchall_from_database(sql)
+
+    def set_file_deleted(self, fileid):
+        sql = ''' UPDATE files
+                              SET deleted = 1
+                              WHERE id = ?'''
+        return self.change_entry_in_database(sql, (fileid,))
+
+    def set_file_alternative_deleted(self, fileid):
+        sql = ''' UPDATE alternative_file_names
+                              SET deleted = 1
+                              WHERE id = ?'''
+        return self.change_entry_in_database(sql, (fileid,))
 

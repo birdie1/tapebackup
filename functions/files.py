@@ -151,10 +151,62 @@ class Files:
                     time.sleep(1)
                 break
 
+        ## Detect deleted files
+        if self.local_files:
+            dir = self.config['local-data-dir']
+            base_dir = self.config['local-base-dir']
+        else:
+            dir = self.config['remote-data-dir']
+            base_dir = self.config['remote-base-dir']
+
+        deleted_count = 0
+        files = self.database.get_not_deleted_files()
+        for database_file in files:
+            ## Only look for files in the data path (then you can still specify subfolder instead of syncing all)
+            database_path = database_file[1]
+            if dir in "{}/{}".format(base_dir, database_path):
+                still_exists = False
+                for fpath in result:
+                    if isinstance(fpath, bytes):
+                        fullpath = fpath.decode("UTF-8").rstrip()
+                    else:
+                        fullpath = fpath.rstrip()
+                    if fullpath == "{}/{}".format(base_dir, database_path):
+                        still_exists = True
+
+                ## Set delete flag in database
+                if not still_exists:
+                    logger.info("Set delete flag for file id: {}".format(database_file[0]))
+                    deleted_count += 1
+                    self.database.set_file_deleted(database_file[0])
+
+        files = self.database.get_not_deleted_alternative_files()
+        for database_file in files:
+            ## Only look for files in the data path (then you can still specify subfolder instead of syncing all)
+            database_path = database_file[1]
+            if dir in "{}/{}".format(base_dir, database_path):
+                still_exists = False
+                for fpath in result:
+                    if isinstance(fpath, bytes):
+                        fullpath = fpath.decode("UTF-8").rstrip()
+                    else:
+                        fullpath = fpath.rstrip()
+                    if fullpath == "{}/{}".format(base_dir, database_path):
+                        still_exists = True
+
+                ## Set delete flag in database
+                if not still_exists:
+                    logger.info("Set delete flag for alternative file id: {}".format(database_file[0]))
+                    deleted_count += 1
+                    self.database.set_file_alternative_deleted(database_file[0])
+
+
         logger.info(
-            "Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}".format(self.downloaded_count,
-                                                                                                       self.skipped_count,
-                                                                                                       self.failed_count))
+            "Processing finished: downloaded: {}, skipped (already downloaded): {}, failed: {}, deleted: {}".format(
+                   self.downloaded_count,
+                   self.skipped_count,
+                   self.failed_count,
+                   deleted_count))
 
 
     def list(self, short):
