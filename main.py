@@ -11,7 +11,7 @@ from lib import Database, Tapelibrary, Tools
 
 
 pname = "Tapebackup"
-pversion = '0.1.2'
+pversion = '0.2'
 debug = False
 
 logging.basicConfig(level=logging.DEBUG,
