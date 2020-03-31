@@ -95,7 +95,7 @@ class Encryption:
                 x.start()
 
                 while threading.active_count() > self.config['threads']:
-                    time.sleep(10)
+                    time.sleep(0.2)
 
                 if self.interrupted:
                     while threading.active_count() > 1:
