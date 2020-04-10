@@ -106,9 +106,11 @@ class Files:
             result = self.get_remote_filelist()
 
         file_count_total = len(result)
+        file_count_current = 0
         logger.info("Found {} entries. Start to process.".format(file_count_total))
 
         for fpath in result:
+            file_count_current += 1
             if self.tools.calculate_over_max_storage_usage(-1):
                 while threading.active_count() > 1:
                     time.sleep(1)
@@ -130,7 +132,7 @@ class Files:
                     if i not in self.active_threads:
                         next_thread = i
                         break
-                logger.info("Starting Thread #{}, processing: {}".format(next_thread, fullpath))
+                logger.info("Starting Thread #{}, processing ({}/{}): {}".format(next_thread, file_count_current, file_count_total, fullpath))
                 id = self.database.insert_file(filename, relpath)
                 logger.debug("Inserting file into database. Fileid: {}".format(id))
 

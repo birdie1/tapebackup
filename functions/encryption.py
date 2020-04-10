@@ -75,13 +75,19 @@ class Encryption:
             if len(files) == 0:
                 break
 
+            file_count_total = len(files)
+            file_count_current = 0
+
             for file in files:
+                file_count_current += 1
                 for i in range(0, self.config['threads']):
                     if i not in self.active_threads:
                         next_thread = i
                         break
 
-                logger.info("Starting Thread #{}, processing: id: {}, filename: {}".format(next_thread, file[0], file[1]))
+                logger.info("Starting Thread #{}, processing ({}/{}): id: {}, filename: {}".format(
+                    next_thread, file_count_current, file_count_total, file[0], file[1]
+                ))
 
                 filename_enc = self.tools.create_filename_encrypted()
                 while self.database.filename_encrypted_already_used(filename_enc):
