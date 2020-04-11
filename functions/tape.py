@@ -76,6 +76,9 @@ class Tape:
             logger.info("Testing md5sum of file {}".format(filelist[index][3]))
             if self.tools.md5sum("{}/{}".format(self.config['local-tape-mount-dir'], filelist[index][1])) != filelist[index][2]:
                 return False
+
+            if self.interrupted:
+                break
         return True
 
 
