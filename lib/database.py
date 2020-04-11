@@ -1,5 +1,7 @@
 import sqlite3
 import logging
+import sys
+import time
 
 from sqlite3 import Error
 
@@ -50,8 +52,32 @@ class Database:
                     id INTEGER PRIMARY KEY,
                     filename TEXT NOT NULL,
                     path TEXT NOT NULL UNIQUE,
+                    mtime TEXT,
                     files_id INT NOT NULL,
                     date TEXT ,
+                    deleted INT DEFAULT 0
+                    );'''
+
+        sql_updates_files = '''CREATE TABLE IF NOT EXISTS updated_files (
+                    id INTEGER PRIMARY KEY,
+                    files_id INT NOT NULL,
+                    filename TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    filename_encrypted TEXT UNIQUE,
+                    mtime TEXT,
+                    filesize INT,
+                    encrypted_filesize INT,
+                    md5sum_file TEXT,
+                    md5sum_encrypted TEXT,
+                    tape TEXT,
+                    downloaded_date TEXT,
+                    encrypted_date TEXT,
+                    written_date TEXT,
+                    downloaded INT DEFAULT 0,
+                    encrypted INT DEFAULT 0,
+                    written INT DEFAULT 0,
+                    verified_count INT DEFAULT 0,
+                    verified_last TEXT,
                     deleted INT DEFAULT 0
                     );'''
 
@@ -59,6 +85,7 @@ class Database:
             self.cursor.execute(sql_files)
             self.cursor.execute(sql_tapedevice)
             self.cursor.execute(sql_alternative_file_names)
+            self.cursor.execute(sql_updates_files)
         except Error as e:
             logger.error("Create tables failed:".format(e))
             return False
@@ -75,12 +102,36 @@ class Database:
         return conn
 
     def fetchall_from_database(self, sql, data=()):
-        self.cursor.execute(sql, data)
+        try_count = 0
+        while True:
+            try_count += 1
+            try:
+                self.cursor.execute(sql, data)
+                break
+            except sqlite3.OperationalError:
+                if try_count == 10:
+                    logger.warning("Database locked, giving up. ({}/10)".format(try_count))
+                    sys.exit(1)
+                else:
+                    logger.warning("Database locked, waiting 10s for next try. ({}/10)".format(try_count))
+                    time.sleep(10)
         return self.cursor.fetchall()
 
     def change_entry_in_database(self, sql, data):
-        self.cursor.execute(sql, data)
-        self.conn.commit()
+        try_count = 0
+        while True:
+            try_count += 1
+            try:
+                self.cursor.execute(sql, data)
+                self.conn.commit()
+                break
+            except sqlite3.OperationalError:
+                if try_count == 10:
+                    logger.warning("Database locked, giving up. ({}/10)".format(try_count))
+                    sys.exit(1)
+                else:
+                    logger.warning("Database locked, waiting 10s for next try. ({}/10)".format(try_count))
+                    time.sleep(10)
         return self.cursor.lastrowid
 
     def export(self, filename):
