@@ -296,3 +296,15 @@ class Files:
                 i[3]
             ])
         print(tabulate(table, headers=['Original Name', 'Modified Date', 'Second Name', 'Filesize'], tablefmt='grid'))
+
+    def summary(self):
+        table = []
+        table.append(["Total File Count", self.database.get_file_count()])
+        min_s = self.database.get_min_file_size()
+        max_s = self.database.get_max_file_size()
+        total_s = self.database.get_total_file_size()
+        table.append(["Smallest File", "{} ({})".format(min_s, self.tools.convert_size(min_s))])
+        table.append(["Biggest File", "{} ({})".format(max_s, self.tools.convert_size(max_s))])
+        table.append(["Total File/Backup Size", "{} ({})".format(total_s, self.tools.convert_size(total_s))])
+
+        print(tabulate(table, headers=['Key', 'Value'], tablefmt='grid'))

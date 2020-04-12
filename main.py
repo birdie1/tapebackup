@@ -169,6 +169,7 @@ if __name__ == "__main__":
     subsubparser_files = subparser_files.add_subparsers(title='Subcommands', dest='command_sub')
     subsubparser_files.add_parser('list', help='Show files')
     subsubparser_files.add_parser('duplicate', help='Show duplicate files')
+    subsubparser_files.add_parser('summary', help='Show summary about files')
 
     subparser_db = subparsers.add_parser('db', help='Database operations')
     subsubparser_db = subparser_db.add_subparsers(title='Subcommands', dest='command_sub')
@@ -271,6 +272,8 @@ if __name__ == "__main__":
             current_class.list(args.short)
         elif args.command_sub == "duplicate":
             current_class.duplicate()
+        elif args.command_sub == "summary":
+            current_class.summary()
         elif args.command_sub is None:
             parser.print_help()
 

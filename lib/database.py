@@ -420,3 +420,21 @@ class Database:
                               WHERE id = ?'''
         return self.change_entry_in_database(sql, (fileid,))
 
+    def get_file_count(self):
+        sql = ''' select ( select count(*) from files WHERE deleted != 1)
+                            + ( select count(*) from alternative_file_names WHERE deleted != 1) 
+                            as total_rows
+                            '''
+        return self.fetchall_from_database(sql)[0][0]
+
+    def get_min_file_size(self):
+        sql = ''' select MIN(filesize) from files WHERE deleted != 1'''
+        return self.fetchall_from_database(sql)[0][0]
+
+    def get_max_file_size(self):
+        sql = ''' select MAX(filesize) from files WHERE deleted != 1'''
+        return self.fetchall_from_database(sql)[0][0]
+
+    def get_total_file_size(self):
+        sql = ''' select SUM(filesize) from files WHERE deleted != 1'''
+        return self.fetchall_from_database(sql)[0][0]
