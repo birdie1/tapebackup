@@ -45,7 +45,12 @@ class Files:
         thread_db = Database(self.config)
 
         if not self.local_files:
-            os.makedirs("{}/{}".format(self.config['local-data-dir'], directory), exist_ok=True)
+            try:
+                os.makedirs("{}/{}".format(self.config['local-data-dir'], directory), exist_ok=True)
+            except OSError:
+                logger.error("No space left on device. Exiting.")
+                self.interrupted = True
+                return False
 
             time_started = time.time()
             command = ['rsync', '--protect-args', '-ae', 'ssh', '{}:{}'.format(self.config['remote-server'], fullpath),
