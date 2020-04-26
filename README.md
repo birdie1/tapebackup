@@ -68,15 +68,15 @@ Tools:
 - mt (Archlinux mt-st-git)
 - mtx
 - LTFS
-  - [IBM Drives] OpenLTFS
-  - [HP/HPE Drives] HPE StoreOpen und Linear Tape File System (LTFS) Software https://buy.hpe.com/de/de/storage/storage-software/storage-device-management-software/storeever-tape-device-management-software/hpe-storeopen-linear-tape-file-system-ltfs-software/p/4249221
+  - \[IBM Drives\] OpenLTFS
+  - \[HP/HPE Drives\] HPE StoreOpen und Linear Tape File System (LTFS) Software https://buy.hpe.com/de/de/storage/storage-software/storage-device-management-software/storeever-tape-device-management-software/hpe-storeopen-linear-tape-file-system-ltfs-software/p/4249221
 - openssl
 - rsync
 - sqlite
 
 #### Install LTFS (Linear Tape File System
-- [IBM Drives] OpenLTFS
-- [HP/HPE Drives] HPE StoreOpen und Linear Tape File System (LTFS) Software https://buy.hpe.com/de/de/storage/storage-software/storage-device-management-software/storeever-tape-device-management-software/hpe-storeopen-linear-tape-file-system-ltfs-software/p/4249221
+- \[IBM Drives\] OpenLTFS
+- \[HP/HPE Drives\] HPE StoreOpen und Linear Tape File System (LTFS) Software https://buy.hpe.com/de/de/storage/storage-software/storage-device-management-software/storeever-tape-device-management-software/hpe-storeopen-linear-tape-file-system-ltfs-software/p/4249221
 
 Follow install instructions from LTFS package
   
@@ -206,12 +206,12 @@ Revision: 'Z51U'
 Attached Changer API: No
 ```
 
-## Erase Tape
+### Erase Tape
 ```
 root@wuerfel /home/jonas # mt-st -f /dev/st0 erase
 ```
 
-## Mount and umount
+### Mount and umount
 ```
 mtx -f /dev/sg5 unload
 mtx -f /dev/sg5 load 4
@@ -220,3 +220,90 @@ ltfs /mnt/lto5
 umount /mnt/lto5
 ```
 
+### Show Tape Blocksize
+Important: The Tape Blocksize is not saved on tape. You will need to set it everytime using a tape!
+```
+root@testserver# mt-st -f /dev/nst0 status
+[ .. ]
+Tape block size 65536 bytes. Density code 0x46 (LTO-4).
+[ .. ]
+```
+
+### Seek to specific position
+```
+mt-st -f /dev/nst0 seek 1093636 
+```
+
+### Position tape to end of data (Appending more data)
+```
+mt-st -f /dev/nst0 eod
+```
+
+### Position commands
+```
+       fsf    Forward space count files.  The tape is positioned on the first block of the next file.
+       fsfm   Forward space count files.  The tape is positioned on the last block of the previous file.
+       bsf    Backward space count files.  The tape is positioned on the last block of the previous file.
+       bsfm   Backward space count files.  The tape is positioned on the first block of the next file.
+       asf    The tape is positioned at the beginning of the count file. Positioning is done by first rewinding the tape and then spacing forward over count filemarks.
+       fsr    Forward space count records.
+       bsr    Backward space count records.
+       fss    (SCSI tapes) Forward space count setmarks.
+       bss    (SCSI tapes) Backward space count setmarks.
+```
+```
+mt-st -f /dev/nst0 fsf 1 #go forward 1 file/tape
+mt-st -f /dev/nst0 bsf 1 #go backward 1 file/tape
+```
+
+### Show current tape position
+```
+root@testserver# mt-st -f /dev/nst0 tell 
+At block 13164.
+```
+
+## Using tar for LTO < LTO5
+### Procedure for writing backups
+1. Set 'scsi2logical' option
+2. Set Blocksize. We are using 64k
+3. Write file
+4. Set 'end-of-file-mark' NOT necessary, as it got written automaticaly
+
+### /dev/nst0: Input/output error
+Set 'scsi2logical' option:
+```
+mt-st -f /dev/nst0 stsetoptions scsi2logical
+```
+
+### Set Blocksize (otherwise the speed is at a few kB/s)
+```
+mt-st -f /dev/nst0 setblk 64k
+```
+
+### Write with tar
+Important: Specify block size (-b | --blocking-factor). It is using a multiple of 512Byte. In order to use 64k Blocksize put 128 as blocking factor.
+
+Use -C to create relativ file path.
+```
+tar -c -b128 -f /dev/nst0 -C <FOLDER_WHICH_CONTAINS_FILES> <FILE1> <FILE2>
+```
+
+### Set end of file mark
+```
+mt-st -f /dev/nst0 weof
+```
+
+### List files of this archive (You must move tape before to correct position)
+```
+tar -b128 -tvf /dev/nst0
+```
+
+### Extract files of this archive (You must move tape before to correct position)
+```
+tar -x -b128 -f /dev/nst0 -C /tmp
+```
+
+### Write with tar and show progress (for testing only)
+```
+tar -vc -b128 -f - -C <FOLDER_WHICH_CONTAINS_FILES> <FILE1> <FILE2> | (pv -p --timer --rate --bytes > /dev/nst0)
+```

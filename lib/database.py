@@ -30,6 +30,7 @@ class Database:
                     downloaded_date TEXT,
                     encrypted_date TEXT,
                     written_date TEXT,
+                    tapeposition INT,
                     downloaded INT DEFAULT 0,
                     encrypted INT DEFAULT 0,
                     written INT DEFAULT 0,
@@ -43,6 +44,7 @@ class Database:
                     label TEXT NOT NULL UNIQUE,
                     full_date TEXT,
                     files_count INT DEFAULT 0,
+                    end_of_data INT,
                     full INT DEFAULT 0,
                     verified_count INT DEFAULT 0,
                     verified_last TEXT
@@ -85,6 +87,7 @@ class Database:
             self.cursor.execute(sql_files)
             self.cursor.execute(sql_tapedevice)
             self.cursor.execute(sql_alternative_file_names)
+            self.cursor.execute(sql_tape_positions)
             self.cursor.execute(sql_updates_files)
         except Error as e:
             logger.error("Create tables failed:".format(e))
@@ -320,9 +323,8 @@ class Database:
                           VALUES(?) '''
         return self.change_entry_in_database(sql, (label,))
 
-
     def get_files_to_be_written(self):
-        sql = ''' SELECT id, filename_encrypted, md5sum_encrypted, filename FROM files 
+        sql = ''' SELECT id, filename_encrypted, filename, encrypted_filesize FROM files 
                     WHERE downloaded=1
                     AND encrypted=1
                     AND written=0
@@ -335,13 +337,11 @@ class Database:
                     '''
         return self.fetchall_from_database(sql, (label,))
 
-
     def get_files_by_tapelabel(self, label):
         sql = ''' SELECT id, filename_encrypted, md5sum_encrypted, filename FROM files 
                     WHERE tape = ?
                     '''
         return self.fetchall_from_database(sql, (label,))
-
 
     def mark_tape_as_full(self, label, dt):
         count = self.get_filecount_by_tapelabel(label)[0][0]
@@ -352,14 +352,14 @@ class Database:
                   WHERE label = ? '''
         return self.change_entry_in_database(sql, (dt, count, label,))
 
-
-    def update_file_after_write(self, dt, label, id):
+    def update_file_after_write(self, dt, label, did, tape_position):
         sql = ''' UPDATE files
                           SET written_date = ?,
                               tape = ?,
-                              written = 1
+                              written = 1,
+                              tapeposition = ?
                           WHERE id = ?'''
-        return self.change_entry_in_database(sql, (dt, label, id,))
+        return self.change_entry_in_database(sql, (dt, label, tape_position, did,))
 
     def list_duplicates(self):
         sql = ''' SELECT files.path, files.mtime, alternative_file_names.path, files.filesize
@@ -438,3 +438,14 @@ class Database:
     def get_total_file_size(self):
         sql = ''' select SUM(filesize) from files WHERE deleted != 1'''
         return self.fetchall_from_database(sql)[0][0]
+
+    def get_end_of_data_by_tape(self, tag):
+        sql = ''' SELECT end_of_data from tapedevices WHERE label = ?'''
+        return self.fetchall_from_database(sql, (tag,))[0][0]
+
+    def update_tape_end_position(self, label, tape_position):
+        count = self.get_filecount_by_tapelabel(label)[0][0]
+        sql = ''' UPDATE tapedevices 
+                  SET end_of_data = ?
+                  WHERE label = ? '''
+        return self.change_entry_in_database(sql, (tape_position, label,))

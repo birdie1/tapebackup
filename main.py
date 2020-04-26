@@ -315,7 +315,7 @@ if __name__ == "__main__":
 
     elif args.command == "develop":
         ## For debugging / programming pruspose only
-        print(tools.calculate_over_max_storage_usage(2000000000))
+        from functions.develop import Develop
 
-
-
+        current_class = Develop(cfg, database, tapelibrary, tools)
+        current_class.current_test()

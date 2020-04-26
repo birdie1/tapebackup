@@ -114,7 +114,6 @@ class Tapelibrary:
 
         logger.debug("Execution Time: Unloading tape: {} seconds".format(time.time() - time_started))
 
-
     def load(self, next_tape):
         time_started = time.time()
         loaded_tag = self.get_current_tag_in_transfer_element()
@@ -140,7 +139,6 @@ class Tapelibrary:
             self.mkltfs()
             self.mount_ltfs()
 
-
     def mkltfs(self):
         time_started = time.time()
         commands = ['mkltfs', '-d', self.config['devices']['tapedrive']]
@@ -149,7 +147,6 @@ class Tapelibrary:
 
         logger.info("Formating Tape: {}".format(std_out))
         logger.debug("Execution Time: Make LTFS Filesystem: {} seconds".format(time.time() - time_started))
-
 
     def mount_ltfs(self):
         time_started = time.time()
@@ -182,8 +179,6 @@ class Tapelibrary:
             logger.debug("Execution Time: Mount LTFS: {} seconds".format(time.time() - time_started))
             return True
 
-
-
     def loaderinfo(self):
         commands = ['loaderinfo', '-f', self.config['devices']['tapelib']]
         loaderinfo = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -201,3 +196,103 @@ class Tapelibrary:
         mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         return mtx.stdout.readlines()
+
+    def get_current_lto_version(self):
+        loaded_tag = self.get_current_tag_in_transfer_element()
+        x = re.search(r".*L(\d)$", loaded_tag)
+        return int(x.group(1))
+
+    def get_current_blocksize(self):
+        commands = ['mt-st', '-f', self.config['devices']['tapedrive'], 'status']
+        mt_st = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        for i in mt_st.stdout.readlines():
+            line = i.decode('utf-8').rstrip().lstrip()
+            if 'Tape block size' in line:
+                x = re.search(r".*Tape block size (\d*) bytes.*", line)
+                return int(x.group(1))
+        return False
+
+    def set_necessary_lto4_options(self):
+        commands = ['mt-st', '-f', self.config['devices']['tapedrive'], 'stsetoptions', 'scsi2logical']
+        mt_st = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        std_out, std_err = mt_st.communicate()
+
+        if mt_st.returncode != 0:
+            logger.error("Executing 'mt-st -f /dev/nst0 setblk 64k' failed")
+            return False
+        else:
+            return True
+
+    def set_blocksize(self):
+        commands = ['mt-st', '-f', self.config['devices']['tapedrive'], 'setblk', '64k']
+        mt_st = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        std_out, std_err = mt_st.communicate()
+
+        if mt_st.returncode == 0:
+            if self.get_current_blocksize() == 65536:
+                return True
+            else:
+                logger.error('Set tape blocksize to 65536 failed')
+        else:
+            logger.error("Executing 'mt-st -f /dev/nst0 setblk 64k' failed")
+        return False
+
+    def get_current_block(self):
+        commands = ['mt-st', '-f', self.config['devices']['tapedrive'], 'tell']
+        mt_st = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        for i in mt_st.stdout.readlines():
+            line = i.decode('utf-8').rstrip().lstrip()
+            if 'At block' in line:
+                x = re.search(r"At block (\d*).", line)
+                return int(x.group(1))
+        return False
+
+    def get_max_block(self):
+        commands = ['tapeinfo', '-f', self.config['devices']['tapedrive']]
+        mt_st = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        for i in mt_st.stdout.readlines():
+            line = i.decode('utf-8').rstrip().lstrip()
+            if 'MaxBlock' in line:
+                x = re.search(r"MaxBlock: (\d*)", line)
+                return int(x.group(1))
+        return False
+
+    def seek_to_end_of_data(self, expected_end):
+        commands = ['mt-st', '-f', self.config['devices']['tapedrive'], 'eod']
+        mt_st = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        std_out, std_err = mt_st.communicate()
+
+        if mt_st.returncode == 0:
+            if self.get_current_block() == expected_end:
+                logger.debug("Tape is on position {}".format(self.get_current_block()))
+                return True
+            else:
+                logger.error("Tape is on position {}, expected {}".format(self.get_current_block(), expected_end))
+                sys.exit(1)
+        else:
+            logger.error("Executing 'mt-st -f /dev/nst0 eod' failed")
+            sys.exit(1)
+
+    def get_lto4_size_stat(self):
+        data = []
+        max_block = self.get_max_block()
+        current_block = self.get_current_block()
+        block_size = self.get_current_blocksize()
+
+        data.append((current_block - 1) * block_size)
+        data.append(int((current_block - 1) * block_size / 1024 / 1024 / 1024))
+        data.append((max_block - current_block) * block_size)
+        data.append(int((max_block - current_block) * block_size / 1024 / 1024 / 1024))
+        data.append(max_block * block_size)
+        data.append(int(max_block * block_size / 1024 / 1024 / 1024))
+
+        return data
+
+    def get_free_tapespace_lto4(self):
+        max_block = self.get_max_block()
+        current_block = self.get_current_block()
+        block_size = self.get_current_blocksize()
+        return (max_block - current_block) * block_size
