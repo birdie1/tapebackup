@@ -64,7 +64,6 @@ class Tape:
         print("")
         print("Please remove following tapes from library ({}): {}".format(len(tapes_to_remove), tapes_to_remove))
 
-
     def test_backup_pieces(self, filelist, verify_files):
         if type(verify_files) == int:
             filecount_to_test = verify_files
@@ -81,7 +80,6 @@ class Tape:
             if self.interrupted:
                 break
         return True
-
 
     def write_file_ltfs(self, id, filename, orig_filename, filesize, free, tape):
         logger.debug("Tape: Free: {}, Fileid: {}, Filesize: {}".format(
@@ -113,8 +111,10 @@ class Tape:
         ))
 
         time_started = time.time()
+        count = 0
         for i in filelist:
-            logger.info("Writing file to tape: {}".format(i[2]))
+            count += 1
+            logger.info("Writing file to tape ({}/{} in this tar archive): {}".format(count, len(filelist), i[2]))
 
         # Write file or filelist to tape with tar
         commands = ['tar', '-c', '-b128', '-f', self.config['devices']['tapedrive'], '-C', self.config['local-enc-dir']]
@@ -192,7 +192,7 @@ class Tape:
             logger.warning("These tapes are full, please remove from library: {}".format(tapes_to_remove))
 
         if len(tapes) == 0:
-            logger.error("No free Tapes in Library, but you can remove these full once: {}".format(tapes_to_remove))
+            logger.error("No free Tapes in Library, but you can remove these full ones: {}".format(tapes_to_remove))
             return
 
         next_tape = tapes.pop(0)
@@ -243,7 +243,7 @@ class Tape:
             ## Write used tape into database
             self.database.write_tape_into_database(next_tape)
 
-            ## Seeking to end of tape, if tape were already
+            ## Seeking to end of tape, if tape were already used before, check eod with eod from database
             time_started = time.time()
             eod = self.database.get_end_of_data_by_tape(next_tape)
             if eod is None:
@@ -255,12 +255,7 @@ class Tape:
             ## Get free Tapesize
             fs = self.tapelibrary.get_lto4_size_stat()
             logger.info("Tape: Used: {} ({} GB), Free: {} ({} GB), Total: {} ({} GB)".format(
-                fs[0],
-                fs[1],
-                fs[2],
-                fs[3],
-                fs[4],
-                fs[5]
+                fs[0], fs[1], fs[2], fs[3], fs[4], fs[5]
             ))
 
             # If tar is used for writing to file, there will be build 1gb chunks in order to prevent to much storage
@@ -273,15 +268,14 @@ class Tape:
                 ## Check if enough space on tape, otherwise unmount and use next tape
                 ## The 1gb maximum chunk size doesn't matter here, because were have 10gb buffer, but if the file is
                 ## bigger than buffer and bigger than free space, it must be processed as full tape
-                if file[3] >= (free - 10737418240) or (files_for_next_chunk + file[3]) >= (free - 10737418240):
+                if file[3] >= (free - 10737418240) or (files_next_chunk_size + file[3]) >= (free - 10737418240):
                     if len(files_for_next_chunk) > 0:
                         self.write_file_tar(files_for_next_chunk, free, next_tape)
                         files_for_next_chunk.append(file)
                         files_next_chunk_size += file[3]
                     # TODO: Special full function for lto-4
                     #full = self.full_tape(next_tape)
-                    #break
-                    pass
+                    break
                 else:
                     if file[3] >= 1048576:
                         self.write_file_tar([file], free, next_tape)

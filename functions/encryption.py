@@ -122,6 +122,6 @@ class Encryption:
         ## decrypt
         # openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -in test.enc -out test.mp4
 
-    def restore():
+    def restore(file):
         ## TODO: Restore file by given name, path or encrypted name
-        pass
+        print(file)

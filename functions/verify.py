@@ -12,7 +12,6 @@ class Verify:
         self.tapelibrary = tapelibrary
         self.tools = tools
 
-
     def file(self, arg, count):
         if arg == "":
             logger.info("Choosing {} files for verification".format(count))

@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.DEBUG,
 logger = logging.getLogger()
 
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.INFO)
+handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter('[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
@@ -261,8 +261,9 @@ if __name__ == "__main__":
 
     elif args.command == "restore":
         from functions.encryption import Encryption
+
         current_class = Encryption(cfg, database, tapelibrary, tools, args.local)
-        current_class.restore()
+        current_class.restore(args.file)
 
     elif args.command == "files":
         from functions.files import Files
