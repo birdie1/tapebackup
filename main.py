@@ -296,7 +296,7 @@ if __name__ == "__main__":
         elif args.command_sub == "summary":
             current_class.summary()
         elif args.command_sub is None:
-            parser.print_help()
+            subparser_files.print_help()
 
     elif args.command == "tape":
         from functions.tape import Tape
@@ -307,7 +307,7 @@ if __name__ == "__main__":
         elif args.command_sub == "status":
             current_class.status()
         elif args.command_sub is None:
-            parser.print_help()
+            subparser_tape.print_help()
 
     elif args.command == "db":
         from functions.db import Db
@@ -326,13 +326,13 @@ if __name__ == "__main__":
                 sys.exit(0)
             current_class.backup()
         elif args.command_sub is None:
-            parser.print_help()
+            subparser_db.print_help()
 
     elif args.command == "config":
         if args.command_sub == "create_key":
             create_key()
         elif args.command_sub is None:
-            parser.print_help()
+            subparser_config.print_help()
 
     elif args.command == "develop":
         ## For debugging / programming pruspose only
