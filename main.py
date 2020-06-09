@@ -160,8 +160,13 @@ if __name__ == "__main__":
                                   help="[Only if no file/tape specified] Specify max number of files/tapes that will be verified (0 = unlimited) [Default: 1]")
 
     subparser_restore = subparsers.add_parser('restore', help='Restore File from Tape')
-    subparser_restore.add_argument("-f", "--file", type=str, required=True,
+    subparser_restore.add_argument("-f", "--file", type=str, required=False,
                                    help="Specify filename or path/file (Wildcards possible)")
+    subsubparser_restore = subparser_restore.add_subparsers(title='Subcommands', dest='command_sub')
+    subsubparser_restore.add_parser('start', help='Start restore operation (-f must be given)')
+    subsubparser_restore.add_parser('continue', help='Restore job will be continued')
+    subsubparser_restore.add_parser('abort', help='Abort restore (delete from transactions db table)')
+    subsubparser_restore.add_parser('status', help='Print restore job status')
 
     subparser_files = subparsers.add_parser('files', help='File operations')
     # subparser_files.add_argument("-p", "--path", type=str, help="Specify path (Wildcards possible)")
@@ -260,10 +265,25 @@ if __name__ == "__main__":
             current_class.tape(args.tape, args.count)
 
     elif args.command == "restore":
-        from functions.encryption import Encryption
+        from functions.restore import Restore
+        current_class = Restore(cfg, database, tapelibrary, tools)
 
-        current_class = Encryption(cfg, database, tapelibrary, tools, args.local)
-        current_class.restore(args.file)
+        if args.command_sub == "start":
+            if args.file is None:
+                logger.error("You must specifiy -f|--file when using restore start command")
+                sys.exit(0)
+            else:
+                current_class.start(args.file)
+        elif args.command_sub == "continue":
+            current_class.cont()
+        elif args.command_sub == "abort":
+            current_class.abort()
+        elif args.command_sub == "status":
+            current_class.status()
+        elif args.command_sub == "list":
+            current_class.list()
+        elif args.command_sub is None:
+            subsubparser_restore.print_help()
 
     elif args.command == "files":
         from functions.files import Files

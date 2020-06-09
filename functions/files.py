@@ -9,6 +9,7 @@ from lib.database import Database
 
 logger = logging.getLogger()
 
+
 class Files:
     def __init__(self, config, database, tapelibrary, tools, local=False):
         self.config = config

@@ -5,8 +5,8 @@ import time
 import threading
 from lib.database import Database
 
-
 logger = logging.getLogger()
+
 
 class Encryption:
     def __init__(self, config, database, tapelibrary, tools, local=False):
@@ -65,7 +65,6 @@ class Encryption:
 
         self.active_threads.remove(threadnr)
 
-
     def encrypt(self):
         logger.info("Starting encrypt files job")
 
@@ -121,7 +120,3 @@ class Encryption:
         # openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -in 'videofile.mp4' -out test.enc -k supersicherespasswort
         ## decrypt
         # openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -in test.enc -out test.mp4
-
-    def restore(file):
-        ## TODO: Restore file by given name, path or encrypted name
-        print(file)

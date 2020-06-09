@@ -83,17 +83,32 @@ class Database:
                     deleted INT DEFAULT 0
                     );'''
 
+        sql_restore_job = '''CREATE TABLE IF NOT EXISTS restore_job (
+                    id INTEGER PRIMARY KEY,
+                    startdate TEXT NOT NULL,
+                    finished TEXT DEFAULT NULL
+                    );'''
+
+        sql_restore_job_files = '''CREATE TABLE IF NOT EXISTS restore_job_files_map (
+                    id INTEGER PRIMARY KEY,
+                    restored INT DEFAULT 0,
+                    files_id INTEGER NOT NULL,
+                    restore_job_id INTEGER NOT NULL,
+                    FOREIGN KEY (files_id) REFERENCES files (id),
+                    FOREIGN KEY (restore_job_id) REFERENCES restore_job (id)
+                    );'''
+
         try:
             self.cursor.execute(sql_files)
             self.cursor.execute(sql_tapedevice)
             self.cursor.execute(sql_alternative_file_names)
-            self.cursor.execute(sql_tape_positions)
             self.cursor.execute(sql_updates_files)
+            self.cursor.execute(sql_restore_job)
+            self.cursor.execute(sql_restore_job_files)
         except Error as e:
             logger.error("Create tables failed:".format(e))
             return False
         return True
-
 
     def create_connection(self, db_file):
         conn = None
@@ -137,11 +152,27 @@ class Database:
                     time.sleep(10)
         return self.cursor.lastrowid
 
+    def bulk_insert_entry_in_database(self, sql, data):
+        try_count = 0
+        while True:
+            try_count += 1
+            try:
+                self.cursor.executemany(sql, data)
+                self.conn.commit()
+                break
+            except sqlite3.OperationalError:
+                if try_count == 10:
+                    logger.warning("Database locked, giving up. ({}/10)".format(try_count))
+                    sys.exit(1)
+                else:
+                    logger.warning("Database locked, waiting 10s for next try. ({}/10)".format(try_count))
+                    time.sleep(10)
+        return True
+
     def export(self, filename):
         with open(filename, 'w') as f:
             for line in self.conn.iterdump():
                 f.write('{}\n'.format(line))
-
 
     def get_tables(self):
         self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
@@ -449,3 +480,40 @@ class Database:
                   SET end_of_data = ?
                   WHERE label = ? '''
         return self.change_entry_in_database(sql, (tape_position, label,))
+
+    def add_restore_job(self):
+        date = int(time.time())
+        sql = ''' INSERT INTO restore_job (startdate)
+                          VALUES(?) '''
+        return self.change_entry_in_database(sql, (date,))
+
+    def add_restore_job_files(self, jobid, fileids):
+        sql = ''' INSERT INTO restore_job_files_map (files_id, restore_job_id)
+                          VALUES(?,?) '''
+        return self.bulk_insert_entry_in_database(sql, [(id, jobid) for id in fileids])
+
+    def get_restore_job_stats_total(self, jobid):
+        sql = ''' SELECT a.id,a.startdate,a.finished,count(b.files_id),sum(c.filesize), count(DISTINCT c.tape)
+                        from restore_job a 
+                        left join restore_job_files_map b on b.restore_job_id = a.id 
+                        left join files c on c.id = b.files_id
+                        where {}
+                        group by a.id {};'''
+        if jobid is not None:
+            sql = sql.format(f"a.id={jobid}", "")
+        else:
+            sql = sql.format("true", "ORDER BY a.id DESC LIMIT 1")
+        return self.fetchall_from_database(sql)
+
+    def get_restore_job_stats_remaining(self, jobid):
+        sql = ''' SELECT a.id,a.startdate,a.finished,count(b.files_id),sum(c.filesize), count(DISTINCT c.tape)
+                        from restore_job a 
+                        left join restore_job_files_map b on b.restore_job_id = a.id 
+                        left join files c on c.id = b.files_id
+                        where b.restored=0 AND {}
+                        group by a.id {};'''
+        if jobid is not None:
+            sql = sql.format(f"a.id={jobid}", "")
+        else:
+            sql = sql.format("true", "ORDER BY a.id DESC LIMIT 1")
+        return self.fetchall_from_database(sql)
