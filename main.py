@@ -170,7 +170,7 @@ if __name__ == "__main__":
 
     subparser_files = subparsers.add_parser('files', help='File operations')
     # subparser_files.add_argument("-p", "--path", type=str, help="Specify path (Wildcards possible)")
-    subparser_files.add_argument("-s", "--short", action="store_true", help="Shorten output to interesting things")
+    subparser_files.add_argument("-v", "--verbose", action="store_true", dest='verbose_list', help="Print a verbose list with all database fields")
     subsubparser_files = subparser_files.add_subparsers(title='Subcommands', dest='command_sub')
     subsubparser_files.add_parser('list', help='Show files')
     subsubparser_files.add_parser('duplicate', help='Show duplicate files')
@@ -290,7 +290,7 @@ if __name__ == "__main__":
         current_class = Files(cfg, database, tapelibrary, tools)
 
         if args.command_sub == "list":
-            current_class.list(args.short)
+            current_class.list(args.verbose_list)
         elif args.command_sub == "duplicate":
             current_class.duplicate()
         elif args.command_sub == "summary":

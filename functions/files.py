@@ -219,10 +219,10 @@ class Files:
                    self.deleted_count))
 
 
-    def list(self, short):
+    def list(self, verbose):
         table = []
         files = self.database.get_all_files()
-        if not short:
+        if verbose:
             for i in files:
                 table.append([
                     i[0],
