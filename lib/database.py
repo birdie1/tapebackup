@@ -518,10 +518,3 @@ class Database:
         else:
             sql = sql.format("true", "ORDER BY a.id DESC LIMIT 1")
         return self.fetchall_from_database(sql)
-
-    @staticmethod
-    def datetime_from_db(field):
-        if field is not None:
-            return datetime.utcfromtimestamp(int(field)).strftime('%Y-%m-%d %H:%M:%S')
-        else:
-            return ""

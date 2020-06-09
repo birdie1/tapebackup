@@ -94,3 +94,10 @@ class Tools:
                 return True
             else:
                 return False
+
+    @staticmethod
+    def datetime_from_db(field):
+        if field is not None:
+            return datetime.utcfromtimestamp(int(field)).strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            return ""

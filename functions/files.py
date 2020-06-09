@@ -228,20 +228,20 @@ class Files:
                     i[1],
                     i[2],
                     i[3],
-                    Database.datetime_from_db(i[4]),
+                    self.tools.datetime_from_db(i[4]),
                     self.tools.convert_size(i[5]) if i[5] is not None else "",
                     self.tools.convert_size(i[6]) if i[6] is not None else "",
                     i[7],
                     i[8],
                     i[9],
-                    Database.datetime_from_db(i[10]),
-                    Database.datetime_from_db(i[11]),
-                    Database.datetime_from_db(i[12]),
+                    self.tools.datetime_from_db(i[10]),
+                    self.tools.datetime_from_db(i[11]),
+                    self.tools.datetime_from_db(i[12]),
                     i[13],
                     i[14],
                     i[15],
                     i[16],
-                    Database.datetime_from_db(i[17]),
+                    self.tools.datetime_from_db(i[17]),
                     i[18]
                 ])
             print(tabulate(table, headers=[
@@ -271,7 +271,7 @@ class Files:
                     table.append([
                         i[0],
                         i[1],
-                        Database.datetime_from_db(i[4]),
+                        self.tools.datetime_from_db(i[4]),
                         self.tools.convert_size(i[5]) if i[5] is not None else "",
                         i[9]
                     ])
@@ -291,7 +291,7 @@ class Files:
         for i in dup:
             table.append([
                 i[0],
-                Database.datetime_from_db(i[1]),
+                self.tools.datetime_from_db(i[1]),
                 i[2],
                 i[3]
             ])
