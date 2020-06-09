@@ -6,6 +6,7 @@ import math
 import string
 import secrets
 from functools import partial
+from datetime import datetime
 
 logger = logging.getLogger()
 
@@ -41,8 +42,9 @@ class Tools:
                     files.append(os.path.join(r, file))
         return files
 
-    def convert_size(self, size_bytes):
-        if size_bytes == 0:
+    @staticmethod
+    def convert_size(size_bytes):
+        if size_bytes is None or size_bytes == 0:
             return "0 B"
         size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
         i = int(math.floor(math.log(size_bytes, 1024)))

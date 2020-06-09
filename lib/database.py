@@ -4,7 +4,6 @@ import sys
 import time
 
 from sqlite3 import Error
-from datetime import datetime
 
 logger = logging.getLogger()
 
