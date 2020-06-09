@@ -4,6 +4,7 @@ import sys
 import time
 
 from sqlite3 import Error
+from datetime import datetime
 
 logger = logging.getLogger()
 
@@ -237,7 +238,7 @@ class Database:
         self.change_entry_in_database(sql, (id,))
 
     def get_broken_db_encrypt_entry(self):
-        sql = ''' SELECT id, filename_encrypted FROM files 
+        sql = ''' SELECT id, filename_encrypted FROM files
                     WHERE filename_encrypted IS NOT NULL
                     and encrypted=0
                     '''
@@ -308,7 +309,7 @@ class Database:
         return self.change_entry_in_database(sql, (filesize, mtime, downloaded_date, md5, downloaded, id,))
 
     def get_files_to_be_encrypted(self):
-        sql = ''' SELECT id, filename, path FROM files 
+        sql = ''' SELECT id, filename, path FROM files
                 WHERE downloaded=1
                 AND encrypted = 0
                 '''
@@ -330,20 +331,20 @@ class Database:
         return self.change_entry_in_database(sql, (filesize, encrypted_date, md5sum_encrypted, id,))
 
     def get_full_tape(self, label):
-        sql = ''' SELECT id, label, full FROM tapedevices 
+        sql = ''' SELECT id, label, full FROM tapedevices
                 WHERE label=?
                 AND full=1
                 '''
         return self.fetchall_from_database(sql, (label,))
 
     def get_full_tapes(self):
-        sql = ''' SELECT label FROM tapedevices 
+        sql = ''' SELECT label FROM tapedevices
                 WHERE full=1
                 '''
         return self.fetchall_from_database(sql)
 
     def get_used_tapes(self, label):
-        sql = ''' SELECT id, label, full FROM tapedevices 
+        sql = ''' SELECT id, label, full FROM tapedevices
                 WHERE label=?
                 AND full=0
                 '''
@@ -355,7 +356,7 @@ class Database:
         return self.change_entry_in_database(sql, (label,))
 
     def get_files_to_be_written(self):
-        sql = ''' SELECT id, filename_encrypted, filename, encrypted_filesize FROM files 
+        sql = ''' SELECT id, filename_encrypted, filename, encrypted_filesize FROM files
                     WHERE downloaded=1
                     AND encrypted=1
                     AND written=0
@@ -363,20 +364,20 @@ class Database:
         return self.fetchall_from_database(sql)
 
     def get_filecount_by_tapelabel(self, label):
-        sql = ''' SELECT count(*) FROM files 
+        sql = ''' SELECT count(*) FROM files
                     WHERE tape = ?
                     '''
         return self.fetchall_from_database(sql, (label,))
 
     def get_files_by_tapelabel(self, label):
-        sql = ''' SELECT id, filename_encrypted, md5sum_encrypted, filename FROM files 
+        sql = ''' SELECT id, filename_encrypted, md5sum_encrypted, filename FROM files
                     WHERE tape = ?
                     '''
         return self.fetchall_from_database(sql, (label,))
 
     def mark_tape_as_full(self, label, dt):
         count = self.get_filecount_by_tapelabel(label)[0][0]
-        sql = ''' UPDATE tapedevices 
+        sql = ''' UPDATE tapedevices
                   SET full_date = ?,
                       files_count = ?,
                       full = 1
@@ -409,19 +410,19 @@ class Database:
             return False
 
     def dump_filenames_to_for_tapes(self, label):
-        sql = ''' SELECT id, path, filename_encrypted FROM files 
+        sql = ''' SELECT id, path, filename_encrypted FROM files
                             WHERE tape = ?
                             '''
         return self.fetchall_from_database(sql, (label,))
 
     def get_minimum_verified_count(self):
-        sql = ''' SELECT MIN(verified_count) FROM files 
+        sql = ''' SELECT MIN(verified_count) FROM files
                             LIMIT 1
                             '''
         return self.fetchall_from_database(sql)
 
     def get_ids_by_verified_count(self, verified_count):
-        sql = ''' SELECT id, filename, filename_encrypted, tape FROM files 
+        sql = ''' SELECT id, filename, filename_encrypted, tape FROM files
                             WHERE tape NOT NULL
                             AND verified_count = ?
                             '''
@@ -453,7 +454,7 @@ class Database:
 
     def get_file_count(self):
         sql = ''' select ( select count(*) from files WHERE deleted != 1)
-                            + ( select count(*) from alternative_file_names WHERE deleted != 1) 
+                            + ( select count(*) from alternative_file_names WHERE deleted != 1)
                             as total_rows
                             '''
         return self.fetchall_from_database(sql)[0][0]
@@ -476,7 +477,7 @@ class Database:
 
     def update_tape_end_position(self, label, tape_position):
         count = self.get_filecount_by_tapelabel(label)[0][0]
-        sql = ''' UPDATE tapedevices 
+        sql = ''' UPDATE tapedevices
                   SET end_of_data = ?
                   WHERE label = ? '''
         return self.change_entry_in_database(sql, (tape_position, label,))
@@ -494,8 +495,8 @@ class Database:
 
     def get_restore_job_stats_total(self, jobid):
         sql = ''' SELECT a.id,a.startdate,a.finished,count(b.files_id),sum(c.filesize), count(DISTINCT c.tape)
-                        from restore_job a 
-                        left join restore_job_files_map b on b.restore_job_id = a.id 
+                        from restore_job a
+                        left join restore_job_files_map b on b.restore_job_id = a.id
                         left join files c on c.id = b.files_id
                         where {}
                         group by a.id {};'''
@@ -507,8 +508,8 @@ class Database:
 
     def get_restore_job_stats_remaining(self, jobid):
         sql = ''' SELECT a.id,a.startdate,a.finished,count(b.files_id),sum(c.filesize), count(DISTINCT c.tape)
-                        from restore_job a 
-                        left join restore_job_files_map b on b.restore_job_id = a.id 
+                        from restore_job a
+                        left join restore_job_files_map b on b.restore_job_id = a.id
                         left join files c on c.id = b.files_id
                         where b.restored=0 AND {}
                         group by a.id {};'''
@@ -517,3 +518,10 @@ class Database:
         else:
             sql = sql.format("true", "ORDER BY a.id DESC LIMIT 1")
         return self.fetchall_from_database(sql)
+
+    @staticmethod
+    def datetime_from_db(field):
+        if field is not None:
+            return datetime.utcfromtimestamp(int(field)).strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            return ""

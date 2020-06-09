@@ -4,7 +4,6 @@ import os
 import subprocess
 import threading
 from tabulate import tabulate
-from datetime import datetime
 from lib.database import Database
 
 logger = logging.getLogger()
@@ -229,20 +228,20 @@ class Files:
                     i[1],
                     i[2],
                     i[3],
-                    datetime.utcfromtimestamp(int(i[4])).strftime('%Y-%m-%d %H:%M:%S') if i[4] is not None else "",
+                    Database.datetime_from_db(i[4]),
                     self.tools.convert_size(i[5]) if i[5] is not None else "",
                     self.tools.convert_size(i[6]) if i[6] is not None else "",
                     i[7],
                     i[8],
                     i[9],
-                    datetime.utcfromtimestamp(int(i[10])).strftime('%Y-%m-%d %H:%M:%S') if i[10] is not None else "",
-                    datetime.utcfromtimestamp(int(i[11])).strftime('%Y-%m-%d %H:%M:%S') if i[11] is not None else "",
-                    datetime.utcfromtimestamp(int(i[12])).strftime('%Y-%m-%d %H:%M:%S') if i[12] is not None else "",
+                    Database.datetime_from_db(i[10]),
+                    Database.datetime_from_db(i[11]),
+                    Database.datetime_from_db(i[12]),
                     i[13],
                     i[14],
                     i[15],
                     i[16],
-                    datetime.utcfromtimestamp(int(i[17])).strftime('%Y-%m-%d %H:%M:%S') if i[17] is not None else "",
+                    Database.datetime_from_db(i[17]),
                     i[18]
                 ])
             print(tabulate(table, headers=[
@@ -272,7 +271,7 @@ class Files:
                     table.append([
                         i[0],
                         i[1],
-                        datetime.utcfromtimestamp(int(i[4])).strftime('%Y-%m-%d %H:%M:%S') if i[4] is not None else "",
+                        Database.datetime_from_db(i[4]),
                         self.tools.convert_size(i[5]) if i[5] is not None else "",
                         i[9]
                     ])
@@ -292,7 +291,7 @@ class Files:
         for i in dup:
             table.append([
                 i[0],
-                datetime.utcfromtimestamp(int(i[1])).strftime('%Y-%m-%d %H:%M:%S'),
+                Database.datetime_from_db(i[1]),
                 i[2],
                 i[3]
             ])
