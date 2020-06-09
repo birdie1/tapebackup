@@ -320,3 +320,6 @@ if __name__ == "__main__":
 
         current_class = Develop(cfg, database, tapelibrary, tools)
         current_class.current_test()
+
+    else:
+        parser.print_help()
