@@ -170,11 +170,13 @@ if __name__ == "__main__":
 
     subparser_files = subparsers.add_parser('files', help='File operations')
     # subparser_files.add_argument("-p", "--path", type=str, help="Specify path (Wildcards possible)")
-    subparser_files.add_argument("-s", "--short", action="store_true", help="Shorten output to interesting things")
-    subsubparser_files = subparser_files.add_subparsers(title='Subcommands', dest='command_sub')
-    subsubparser_files.add_parser('list', help='Show files')
-    subsubparser_files.add_parser('duplicate', help='Show duplicate files')
-    subsubparser_files.add_parser('summary', help='Show summary about files')
+    subparser_files_sub = subparser_files.add_subparsers(title='Subcommands', dest='command_sub')
+    subparser_files_list = subparser_files_sub.add_parser('list', help='Show files')
+    subparser_files_list.add_argument("-v", "--verbose", action="store_true", dest='verbose_list', help="Print a verbose list with all database fields")
+    subparser_files_list.add_argument("-t", "--tape", type=str, help="Only show files on a specific tape")
+    subparser_files_list.add_argument('filter', nargs='*', help='Filter files by path or wildcard')
+    subparser_files_sub.add_parser('duplicate', help='Show duplicate files')
+    subparser_files_sub.add_parser('summary', help='Show summary about files')
 
     subparser_db = subparsers.add_parser('db', help='Database operations')
     subsubparser_db = subparser_db.add_subparsers(title='Subcommands', dest='command_sub')
@@ -290,7 +292,7 @@ if __name__ == "__main__":
         current_class = Files(cfg, database, tapelibrary, tools)
 
         if args.command_sub == "list":
-            current_class.list(args.short)
+            current_class.list(args.filter, args.verbose_list, args.tape)
         elif args.command_sub == "duplicate":
             current_class.duplicate()
         elif args.command_sub == "summary":

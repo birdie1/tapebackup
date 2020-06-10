@@ -4,8 +4,8 @@ import os
 import subprocess
 import threading
 from tabulate import tabulate
-from datetime import datetime
 from lib.database import Database
+from lib.tools import Tools
 
 logger = logging.getLogger()
 
@@ -218,85 +218,74 @@ class Files:
                    self.failed_count,
                    self.deleted_count))
 
+    table_format_verbose = [
+        ('Id',                  lambda i: i[0]),
+        ('Filename',            lambda i: i[1]),
+        ('Path',                lambda i: i[2]),
+        ('Filename Encrypted',  lambda i: i[3]),
+        ('Modified Date',       lambda i: Tools.datetime_from_db(i[4])),
+        ('Filesize',            lambda i: Tools.convert_size(i[5])),
+        ('Filesize Encrypted',  lambda i: Tools.convert_size(i[6])),
+        ('md5sum',              lambda i: i[7]),
+        ('md5sum Encrypted',    lambda i: i[8]),
+        ('Tape',                lambda i: i[9]),
+        ('Downloaded Date',     lambda i: Tools.datetime_from_db(i[10])),
+        ('Encrypted Date',      lambda i: Tools.datetime_from_db(i[11])),
+        ('Written Date',        lambda i: Tools.datetime_from_db(i[12])),
+        ('Downloaded',          lambda i: i[13]),
+        ('Encrypted',           lambda i: i[14]),
+        ('Written',             lambda i: i[15]),
+        ('Verified Count',      lambda i: i[16]),
+        ('Verified Last Date',  lambda i: Tools.datetime_from_db(i[17])),
+        ('Deleted',             lambda i: i[18])
+    ]
 
-    def list(self, short):
-        table = []
-        files = self.database.get_all_files()
-        if not short:
-            for i in files:
-                table.append([
-                    i[0],
-                    i[1],
-                    i[2],
-                    i[3],
-                    datetime.utcfromtimestamp(int(i[4])).strftime('%Y-%m-%d %H:%M:%S') if i[4] is not None else "",
-                    self.tools.convert_size(i[5]) if i[5] is not None else "",
-                    self.tools.convert_size(i[6]) if i[6] is not None else "",
-                    i[7],
-                    i[8],
-                    i[9],
-                    datetime.utcfromtimestamp(int(i[10])).strftime('%Y-%m-%d %H:%M:%S') if i[10] is not None else "",
-                    datetime.utcfromtimestamp(int(i[11])).strftime('%Y-%m-%d %H:%M:%S') if i[11] is not None else "",
-                    datetime.utcfromtimestamp(int(i[12])).strftime('%Y-%m-%d %H:%M:%S') if i[12] is not None else "",
-                    i[13],
-                    i[14],
-                    i[15],
-                    i[16],
-                    datetime.utcfromtimestamp(int(i[17])).strftime('%Y-%m-%d %H:%M:%S') if i[17] is not None else "",
-                    i[18]
-                ])
-            print(tabulate(table, headers=[
-                'Id',
-                'Filename',
-                'Path',
-                'Filename Encrypted',
-                'Modified Date',
-                'Filesize'
-                'Filesize Encrypted',
-                'md5sum',
-                'md5sum Encrypted',
-                'Tape',
-                'Downloaded Date',
-                'Encrypted Date',
-                'Written Date',
-                'Downloaded',
-                'Encrypted',
-                'Written',
-                'Verified Count',
-                'Verified Last Date',
-                'Deleted'
-            ], tablefmt='grid'))
+    table_format_short = [
+        ('Id',              lambda i: i[0]),
+        ('Path',            lambda i: i[1]),
+        ('Modified Date',   lambda i: Tools.datetime_from_db(i[4])),
+        ('Filesize',        lambda i: Tools.convert_size(i[5])),
+        ('Tape',            lambda i: i[9])
+    ]
+
+    table_format_duplicate = [
+        ('Original Name',   lambda i: i[0]),
+        ('Modified Date',   lambda i: Tools.datetime_from_db(i[1])),
+        ('Second Name',     lambda i: i[2]),
+        ('Filesize',        lambda i: i[3]),
+    ]
+
+    @staticmethod
+    def table_format_entry(format, file):
+        return (formatter(file) for header,formatter in format)
+
+    @classmethod
+    def table_print(cls, rows, format):
+        data = (cls.table_format_entry(format, row) for row in rows)
+        headers = (header for header,formatter in format)
+        table = tabulate(data, headers=headers, tablefmt='grid')
+        print(table)
+
+    def list(self, path_filter, verbose=False, tape=None):
+        if len(path_filter) == 0:
+            if tape is None:
+                files = self.database.get_all_files()
+            else:
+                files = self.database.get_files_like(tape=tape)
         else:
-            for i in files:
-                if i[18] == 0:
-                    table.append([
-                        i[0],
-                        i[1],
-                        datetime.utcfromtimestamp(int(i[4])).strftime('%Y-%m-%d %H:%M:%S') if i[4] is not None else "",
-                        self.tools.convert_size(i[5]) if i[5] is not None else "",
-                        i[9]
-                    ])
-            print(tabulate(table, headers=[
-                'Id',
-                'Path',
-                'Modified Date',
-                'Filesize'
-                'Tape'
-            ], tablefmt='grid'))
-
-
+            files = self.database.get_files_like(
+                Tools.wildcard_to_sql_many(path_filter),
+                tape
+            )
+        if verbose:
+            format = self.table_format_verbose
+        else:
+            format = self.table_format_short
+        self.table_print(files, format)
 
     def duplicate(self):
-        table = []
         dup = self.database.list_duplicates()
-        for i in dup:
-            table.append([
-                i[0],
-                datetime.utcfromtimestamp(int(i[1])).strftime('%Y-%m-%d %H:%M:%S'),
-                i[2],
-                i[3]
-            ])
-        print(tabulate(table, headers=['Original Name', 'Modified Date', 'Second Name', 'Filesize'], tablefmt='grid'))
+        self.table_print(dup, self.table_format_duplicate)
 
     def summary(self):
         table = []
@@ -304,8 +293,8 @@ class Files:
         min_s = self.database.get_min_file_size()
         max_s = self.database.get_max_file_size()
         total_s = self.database.get_total_file_size()
-        table.append(["Smallest File", "{} ({})".format(min_s, self.tools.convert_size(min_s))])
-        table.append(["Biggest File", "{} ({})".format(max_s, self.tools.convert_size(max_s))])
-        table.append(["Total File/Backup Size", "{} ({})".format(total_s, self.tools.convert_size(total_s))])
+        table.append(["Smallest File", "{} ({})".format(min_s, Tools.convert_size(min_s))])
+        table.append(["Biggest File", "{} ({})".format(max_s, Tools.convert_size(max_s))])
+        table.append(["Total File/Backup Size", "{} ({})".format(total_s, Tools.convert_size(total_s))])
 
         print(tabulate(table, headers=['Key', 'Value'], tablefmt='grid'))
