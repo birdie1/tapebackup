@@ -103,3 +103,11 @@ class Tools:
             return datetime.utcfromtimestamp(int(field)).strftime('%Y-%m-%d %H:%M:%S')
         else:
             return ""
+
+    @staticmethod
+    def wildcard_to_sql(string):
+        return string.replace('*', '%')
+
+    @classmethod
+    def wildcard_to_sql_many(cls, strings):
+        return [cls.wildcard_to_sql(s) for s in strings]

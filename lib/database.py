@@ -126,12 +126,12 @@ class Database:
             try:
                 self.cursor.execute(sql, data)
                 break
-            except sqlite3.OperationalError:
+            except sqlite3.OperationalError as e:
                 if try_count == 10:
                     logger.warning("Database locked, giving up. ({}/10)".format(try_count))
                     sys.exit(1)
                 else:
-                    logger.warning("Database locked, waiting 10s for next try. ({}/10)".format(try_count))
+                    logger.warning("Database locked, waiting 10s for next try. ({}/10) [{}]".format(try_count, e))
                     time.sleep(10)
         return self.cursor.fetchall()
 
@@ -143,12 +143,12 @@ class Database:
                 self.cursor.execute(sql, data)
                 self.conn.commit()
                 break
-            except sqlite3.OperationalError:
+            except sqlite3.OperationalError as e:
                 if try_count == 10:
                     logger.warning("Database locked, giving up. ({}/10)".format(try_count))
                     sys.exit(1)
                 else:
-                    logger.warning("Database locked, waiting 10s for next try. ({}/10)".format(try_count))
+                    logger.warning("Database locked, waiting 10s for next try. ({}/10) [{}]".format(try_count, e))
                     time.sleep(10)
         return self.cursor.lastrowid
 
@@ -517,3 +517,14 @@ class Database:
         else:
             sql = sql.format("true", "ORDER BY a.id DESC LIMIT 1")
         return self.fetchall_from_database(sql)
+
+    def get_files_like(self, likes=[], tape=None):
+        if likes:
+            like_sql = " or ".join(["path like ?"] * len(likes))
+        else:
+            like_sql = "true"
+        sql = f"SELECT * FROM files WHERE ({like_sql})"
+        if tape is not None:
+            sql += " and tape=?"
+            likes += [tape]
+        return self.fetchall_from_database(sql, likes)

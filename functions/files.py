@@ -248,33 +248,44 @@ class Files:
         ('Tape',            lambda i: i[9])
     ]
 
+    table_format_duplicate = [
+        ('Original Name',   lambda i: i[0]),
+        ('Modified Date',   lambda i: Tools.datetime_from_db(i[1])),
+        ('Second Name',     lambda i: i[2]),
+        ('Filesize',        lambda i: i[3]),
+    ]
+
     @staticmethod
-    def list_table_format(format, file):
+    def table_format_entry(format, file):
         return (formatter(file) for header,formatter in format)
 
-    def list(self, verbose=False):
-        table = []
-        files = self.database.get_all_files()
-        if verbose:
-            format = self.table_format_verbose
-        else:
-            format = self.table_format_short
-        data = (self.list_table_format(format, file) for file in files)
+    @classmethod
+    def table_print(cls, rows, format):
+        data = (cls.table_format_entry(format, row) for row in rows)
         headers = (header for header,formatter in format)
         table = tabulate(data, headers=headers, tablefmt='grid')
         print(table)
 
+    def list(self, path_filter, verbose=False, tape=None):
+        if len(path_filter) == 0:
+            if tape is None:
+                files = self.database.get_all_files()
+            else:
+                files = self.database.get_files_like(tape=tape)
+        else:
+            files = self.database.get_files_like(
+                Tools.wildcard_to_sql_many(path_filter),
+                tape
+            )
+        if verbose:
+            format = self.table_format_verbose
+        else:
+            format = self.table_format_short
+        self.table_print(files, format)
+
     def duplicate(self):
-        table = []
         dup = self.database.list_duplicates()
-        for i in dup:
-            table.append([
-                i[0],
-                Tools.datetime_from_db(i[1]),
-                i[2],
-                i[3]
-            ])
-        print(tabulate(table, headers=['Original Name', 'Modified Date', 'Second Name', 'Filesize'], tablefmt='grid'))
+        self.table_print(dup, self.table_format_duplicate)
 
     def summary(self):
         table = []
