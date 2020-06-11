@@ -242,7 +242,7 @@ class Files:
 
     table_format_short = [
         ('Id',              lambda i: i[0]),
-        ('Path',            lambda i: i[1]),
+        ('Filename',        lambda i: i[1]),
         ('Modified Date',   lambda i: Tools.datetime_from_db(i[4])),
         ('Filesize',        lambda i: Tools.convert_size(i[5])),
         ('Tape',            lambda i: i[9])

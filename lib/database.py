@@ -490,41 +490,67 @@ class Database:
     def add_restore_job_files(self, jobid, fileids):
         sql = ''' INSERT INTO restore_job_files_map (files_id, restore_job_id)
                           VALUES(?,?) '''
-        return self.bulk_insert_entry_in_database(sql, [(id, jobid) for id in fileids])
+        return self.bulk_insert_entry_in_database(sql, ((id, jobid) for id in fileids))
 
-    def get_restore_job_stats_total(self, jobid):
-        sql = ''' SELECT a.id,a.startdate,a.finished,count(b.files_id),sum(c.filesize), count(DISTINCT c.tape)
+    def get_restore_job_stats_total(self, jobid=None):
+        sql = '''SELECT a.id,a.startdate,a.finished,count(b.files_id),sum(c.filesize), count(DISTINCT c.tape)
                         from restore_job a
                         left join restore_job_files_map b on b.restore_job_id = a.id
                         left join files c on c.id = b.files_id
                         where {}
-                        group by a.id {};'''
+                        group by a.id {}'''
         if jobid is not None:
             sql = sql.format(f"a.id={jobid}", "")
         else:
             sql = sql.format("true", "ORDER BY a.id DESC LIMIT 1")
         return self.fetchall_from_database(sql)
 
-    def get_restore_job_stats_remaining(self, jobid):
-        sql = ''' SELECT a.id,a.startdate,a.finished,count(b.files_id),sum(c.filesize), count(DISTINCT c.tape)
+    def get_restore_job_stats_remaining(self, jobid=None):
+        sql = '''SELECT a.id,a.startdate,a.finished,count(b.files_id),sum(c.filesize), count(DISTINCT c.tape)
                         from restore_job a
                         left join restore_job_files_map b on b.restore_job_id = a.id
                         left join files c on c.id = b.files_id
                         where b.restored=0 AND {}
-                        group by a.id {};'''
+                        group by a.id {}'''
         if jobid is not None:
             sql = sql.format(f"a.id={jobid}", "")
         else:
             sql = sql.format("true", "ORDER BY a.id DESC LIMIT 1")
         return self.fetchall_from_database(sql)
 
-    def get_files_like(self, likes=[], tape=None):
-        if likes:
-            like_sql = " or ".join(["path like ?"] * len(likes))
+    def get_restore_job_files(self, jobid, tape=None):
+        if tape:
+            tape_sql = 'tape=?'
+            args = (jobid, tape)
         else:
-            like_sql = "true"
-        sql = f"SELECT * FROM files WHERE ({like_sql})"
+            tape_sql = 'true'
+            args = (jobid,)
+
+        sql = f'''SELECT files_id, filename, path, filesize, tape
+                        from restore_job_files_map a
+                        left join files b on b.id = a.files_id
+                        where restore_job_id=? AND {tape_sql}'''
+
+        return self.fetchall_from_database(sql, args)
+
+    def get_files_like(self, likes=[], tape=None, items=[]):
+        return self.get_files_by_path(likes, tape, items, file_compare="path like ?")
+
+    def get_files_by_path(self, files=[], tape=None, items=[], file_compare="path=?"):
+        if files:
+            where_files = " or ".join([file_compare] * len(files))
+        else:
+            where_files = "true"
+
+        if items:
+            items_sql = ",".join(items)
+        else:
+            items_sql = "*"
+
+        sql = f"SELECT {items_sql} FROM files WHERE ({where_files})"
+
         if tape is not None:
             sql += " and tape=?"
-            likes += [tape]
-        return self.fetchall_from_database(sql, likes)
+            files += [tape]
+
+        return self.fetchall_from_database(sql, files)

@@ -160,21 +160,24 @@ if __name__ == "__main__":
                                   help="[Only if no file/tape specified] Specify max number of files/tapes that will be verified (0 = unlimited) [Default: 1]")
 
     subparser_restore = subparsers.add_parser('restore', help='Restore File from Tape')
-    subparser_restore.add_argument("-f", "--file", type=str, required=False,
-                                   help="Specify filename or path/file (Wildcards possible)")
-    subsubparser_restore = subparser_restore.add_subparsers(title='Subcommands', dest='command_sub')
-    subsubparser_restore.add_parser('start', help='Start restore operation (-f must be given)')
-    subsubparser_restore.add_parser('continue', help='Restore job will be continued')
-    subsubparser_restore.add_parser('abort', help='Abort restore (delete from transactions db table)')
-    subsubparser_restore.add_parser('status', help='Print restore job status')
+    subparser_restore_sub = subparser_restore.add_subparsers(title='Subcommands', dest='command_sub')
+    subparser_restore_start = subparser_restore_sub.add_parser('start', help='Start restore operation (-f must be given)')
+    subparser_restore_start.add_argument('-t', '--tape', type=str, help='Only restore from this tape')
+    subparser_restore_start.add_argument('-l', '--filelist', type=str, help='Read paths from file list to restore')
+    subparser_restore_start.add_argument('files', nargs='*', help='Select files by absolute path or with wildcard')
+    subparser_restore_sub.add_parser('continue', help='Restore job will be continued')
+    subparser_restore_sub.add_parser('abort', help='Abort restore (delete from transactions db table)')
+    subparser_restore_sub.add_parser('list', help='List restore jobs')
+    subparser_restore_status = subparser_restore_sub.add_parser('status', help='Print restore job status')
+    subparser_restore_status.add_argument("-v", "--verbose", action="store_true", dest='verbose_list', help="Additionally print files in this restore job")
+    subparser_restore_status.add_argument('jobid', nargs='?', help='Display status of specific restore job')
 
     subparser_files = subparsers.add_parser('files', help='File operations')
-    # subparser_files.add_argument("-p", "--path", type=str, help="Specify path (Wildcards possible)")
     subparser_files_sub = subparser_files.add_subparsers(title='Subcommands', dest='command_sub')
     subparser_files_list = subparser_files_sub.add_parser('list', help='Show files')
     subparser_files_list.add_argument("-v", "--verbose", action="store_true", dest='verbose_list', help="Print a verbose list with all database fields")
     subparser_files_list.add_argument("-t", "--tape", type=str, help="Only show files on a specific tape")
-    subparser_files_list.add_argument('filter', nargs='*', help='Filter files by path or wildcard')
+    subparser_files_list.add_argument('files', nargs='*', help='Filter files by absolute path or with wildcard')
     subparser_files_sub.add_parser('duplicate', help='Show duplicate files')
     subparser_files_sub.add_parser('summary', help='Show summary about files')
 
@@ -271,28 +274,29 @@ if __name__ == "__main__":
         current_class = Restore(cfg, database, tapelibrary, tools)
 
         if args.command_sub == "start":
-            if args.file is None:
-                logger.error("You must specifiy -f|--file when using restore start command")
-                sys.exit(0)
+            if not args.files and args.filelist is None:
+                logger.error("You must specifiy either files or a list of files to restore")
+                subparser_restore_start.print_help()
+                sys.exit(1)
             else:
-                current_class.start(args.file)
+                current_class.start(args.files, tape=args.tape, filelist=args.filelist)
         elif args.command_sub == "continue":
             current_class.cont()
         elif args.command_sub == "abort":
             current_class.abort()
         elif args.command_sub == "status":
-            current_class.status()
+            current_class.status(args.jobid, args.verbose_list)
         elif args.command_sub == "list":
             current_class.list()
         elif args.command_sub is None:
-            subsubparser_restore.print_help()
+            subparser_restore.print_help()
 
     elif args.command == "files":
         from functions.files import Files
         current_class = Files(cfg, database, tapelibrary, tools)
 
         if args.command_sub == "list":
-            current_class.list(args.filter, args.verbose_list, args.tape)
+            current_class.list(args.files, args.verbose_list, args.tape)
         elif args.command_sub == "duplicate":
             current_class.duplicate()
         elif args.command_sub == "summary":
