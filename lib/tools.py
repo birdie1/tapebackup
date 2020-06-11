@@ -7,6 +7,7 @@ import string
 import secrets
 from functools import partial
 from datetime import datetime
+from tabulate import tabulate
 
 logger = logging.getLogger()
 
@@ -111,3 +112,14 @@ class Tools:
     @classmethod
     def wildcard_to_sql_many(cls, strings):
         return [cls.wildcard_to_sql(s) for s in strings]
+
+    @staticmethod
+    def table_format_entry(format, file):
+        return (formatter(file) for header,formatter in format)
+
+    @classmethod
+    def table_print(cls, rows, format):
+        data = (cls.table_format_entry(format, row) for row in rows)
+        headers = (header for header,formatter in format)
+        table = tabulate(data, headers=headers, tablefmt='grid')
+        print(table)

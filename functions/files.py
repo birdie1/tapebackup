@@ -248,24 +248,6 @@ class Files:
         ('Tape',            lambda i: i[9])
     ]
 
-    table_format_duplicate = [
-        ('Original Name',   lambda i: i[0]),
-        ('Modified Date',   lambda i: Tools.datetime_from_db(i[1])),
-        ('Second Name',     lambda i: i[2]),
-        ('Filesize',        lambda i: i[3]),
-    ]
-
-    @staticmethod
-    def table_format_entry(format, file):
-        return (formatter(file) for header,formatter in format)
-
-    @classmethod
-    def table_print(cls, rows, format):
-        data = (cls.table_format_entry(format, row) for row in rows)
-        headers = (header for header,formatter in format)
-        table = tabulate(data, headers=headers, tablefmt='grid')
-        print(table)
-
     def list(self, path_filter, verbose=False, tape=None):
         if len(path_filter) == 0:
             if tape is None:
@@ -281,11 +263,18 @@ class Files:
             format = self.table_format_verbose
         else:
             format = self.table_format_short
-        self.table_print(files, format)
+        Tools.table_print(files, format)
+
+    table_format_duplicate = [
+        ('Original Name',   lambda i: i[0]),
+        ('Modified Date',   lambda i: Tools.datetime_from_db(i[1])),
+        ('Second Name',     lambda i: i[2]),
+        ('Filesize',        lambda i: i[3]),
+    ]
 
     def duplicate(self):
         dup = self.database.list_duplicates()
-        self.table_print(dup, self.table_format_duplicate)
+        Tools.table_print(dup, self.table_format_duplicate)
 
     def summary(self):
         table = []
