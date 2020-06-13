@@ -175,7 +175,7 @@ class Database:
                 f.write('{}\n'.format(line))
 
     def get_tables(self):
-        self.cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        self.cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         rows = self.cursor.fetchall()
         tables = []
         for table in rows:
@@ -213,8 +213,8 @@ class Database:
         for col in info:
             col_dict[col[1]] = 0
         for col in col_dict:
-            self.cursor.execute('SELECT ({0}) FROM {1} '
-                           'WHERE {0} IS NOT NULL'.format(col, table_name))
+            self.cursor.execute(f'SELECT ({col}) FROM {table_name} \
+                                  WHERE {col} IS NOT NULL')
             # In my case this approach resulted in a
             # better performance than using COUNT
             number_rows = len(self.cursor.fetchall())
@@ -222,43 +222,37 @@ class Database:
         if print_out:
             print("\nNumber of entries per column:")
             for i in col_dict.items():
-                print('{}: {}'.format(i[0], i[1]))
+                print(f'{i[0]}: {i[1]}')
         return col_dict
 
     def get_broken_db_download_entry(self):
-        sql = ''' SELECT id, path FROM files
-                    WHERE downloaded=0
-                    '''
+        sql = '''SELECT id, path FROM files
+                 WHERE downloaded = 0'''
         return self.fetchall_from_database(sql)
 
     def delete_broken_db_entry(self, id):
-        sql = ''' DELETE from files
-                      WHERE id = ?'''
+        sql = '''DELETE from files
+                 WHERE id = ?'''
         self.change_entry_in_database(sql, (id,))
 
     def get_broken_db_encrypt_entry(self):
-        sql = ''' SELECT id, filename_encrypted FROM files
-                    WHERE filename_encrypted IS NOT NULL
-                    and encrypted=0
-                    '''
+        sql = '''SELECT id, filename_encrypted FROM files
+                 WHERE filename_encrypted IS NOT NULL
+                 AND encrypted = 0'''
         return self.fetchall_from_database(sql)
 
     def get_all_files(self):
-        sql = ''' SELECT * FROM files
-                    '''
+        sql = 'SELECT * FROM files'
         return self.fetchall_from_database(sql)
 
     def fix_float_timestamps(self, id, new_timestamp):
-        sql = ''' UPDATE files
-                    SET mtime = ?
-                    WHERE id = ?
-                    '''
-        return self.change_entry_in_database(sql, (new_timestamp, id,))
+        sql = 'UPDATE files SET mtime = ? WHERE id = ?'
+        return self.change_entry_in_database(sql, (new_timestamp, id))
 
     def update_broken_db_encrypt_entry(self, id):
-        sql = ''' UPDATE files
-                     SET filename_encrypted = NULL
-                     WHERE id = ?'''
+        sql = '''UPDATE files
+                 SET filename_encrypted = NULL
+                 WHERE id = ?'''
         self.change_entry_in_database(sql, (id,))
 
     def check_if_file_exists_by_path(self, relpath):
@@ -268,8 +262,14 @@ class Database:
         :param filename:
         :return: inserted file id
         """
-        rows_files = self.fetchall_from_database("SELECT * FROM files WHERE path=?", (relpath,))
-        rows_alt_files = self.fetchall_from_database("SELECT * FROM alternative_file_names WHERE path=?", (relpath,))
+        rows_files = self.fetchall_from_database(
+            'SELECT * FROM files WHERE path = ?',
+            (relpath,)
+        )
+        rows_alt_files = self.fetchall_from_database(
+            'SELECT * FROM alternative_file_names WHERE path = ?',
+            (relpath,)
+        )
 
         if len(rows_files) == 0 and len(rows_alt_files) == 0:
             return False
@@ -282,275 +282,305 @@ class Database:
         :param file:
         :return: inserted file id
         """
-        sql = ''' INSERT INTO files(filename,path)
-                  VALUES(?,?) '''
-        return self.change_entry_in_database(sql, (filename, relpath,))
+        sql = '''INSERT INTO files (filename,path)
+                 VALUES (?,?)'''
+        return self.change_entry_in_database(sql, (filename, relpath))
 
     def get_files_by_md5(self, md5):
-        sql = ''' SELECT id FROM files
-                    WHERE md5sum_file=?
-                    '''
+        sql = '''SELECT id FROM files
+                 WHERE md5sum_file = ?'''
         return self.fetchall_from_database(sql, (md5,))
 
     def insert_alternative_file_names(self, filename, path, duplicate_id, downloaded_date):
-        sql = ''' INSERT INTO alternative_file_names (filename,path,files_id,date)
-                  VALUES(?,?,?,?) '''
-        return self.change_entry_in_database(sql, (filename, path, duplicate_id, downloaded_date,))
+        sql = '''INSERT INTO alternative_file_names (filename,path,files_id,date)
+                 VALUES (?,?,?,?)'''
+        return self.change_entry_in_database(sql, (filename, path, duplicate_id, downloaded_date))
 
     def update_file_after_download(self, filesize, mtime, downloaded_date, md5, downloaded, id):
-        sql = ''' UPDATE files
-                  SET filesize = ?,
-                      mtime = ?,
-                      downloaded_date = ?,
-                      md5sum_file = ?,
-                      downloaded = ?
-                  WHERE id = ?'''
-        return self.change_entry_in_database(sql, (filesize, mtime, downloaded_date, md5, downloaded, id,))
+        sql = '''UPDATE files
+                 SET filesize = ?,
+                     mtime = ?,
+                     downloaded_date = ?,
+                     md5sum_file = ?,
+                     downloaded = ?
+                 WHERE id = ?'''
+        return self.change_entry_in_database(sql, (filesize, mtime, downloaded_date, md5, downloaded, id))
 
     def get_files_to_be_encrypted(self):
-        sql = ''' SELECT id, filename, path FROM files
-                WHERE downloaded=1
-                AND encrypted = 0
-                '''
+        sql = '''SELECT id, filename, path FROM files
+                 WHERE downloaded = 1
+                 AND encrypted = 0'''
         return self.fetchall_from_database(sql)
 
     def update_filename_enc(self, filename_enc, id):
-        sql = ''' UPDATE files
-                  SET filename_encrypted = ?
-                  WHERE id = ?'''
+        sql = '''UPDATE files
+                 SET filename_encrypted = ?
+                 WHERE id = ?'''
         return self.change_entry_in_database(sql, (filename_enc, id,))
 
     def update_file_after_encrypt(self, filesize, encrypted_date, md5sum_encrypted, id):
-        sql = ''' UPDATE files
-                      SET encrypted_filesize = ?,
-                          encrypted_date = ?,
-                          md5sum_encrypted = ?,
-                          encrypted = 1
-                      WHERE id = ?'''
-        return self.change_entry_in_database(sql, (filesize, encrypted_date, md5sum_encrypted, id,))
+        sql = '''UPDATE files
+                 SET encrypted_filesize = ?,
+                     encrypted_date = ?,
+                     md5sum_encrypted = ?,
+                     encrypted = 1
+                 WHERE id = ?'''
+        return self.change_entry_in_database(sql, (filesize, encrypted_date, md5sum_encrypted, id))
 
     def get_full_tape(self, label):
-        sql = ''' SELECT id, label, full FROM tapedevices
-                WHERE label=?
-                AND full=1
-                '''
+        sql = '''SELECT id, label, full FROM tapedevices
+                 WHERE label = ?
+                 AND full = 1'''
         return self.fetchall_from_database(sql, (label,))
 
     def get_full_tapes(self):
-        sql = ''' SELECT label FROM tapedevices
-                WHERE full=1
-                '''
+        sql = '''SELECT label FROM tapedevices
+                 WHERE full = 1'''
         return self.fetchall_from_database(sql)
 
     def get_used_tapes(self, label):
-        sql = ''' SELECT id, label, full FROM tapedevices
-                WHERE label=?
-                AND full=0
-                '''
+        sql = '''SELECT id, label, full FROM tapedevices
+                 WHERE label = ?
+                 AND full = 0'''
         return self.fetchall_from_database(sql, (label,))
 
     def write_tape_into_database(self, label):
-        sql = ''' INSERT OR IGNORE INTO tapedevices (label)
-                          VALUES(?) '''
+        sql = '''INSERT OR IGNORE INTO tapedevices (label)
+                 VALUES (?)'''
         return self.change_entry_in_database(sql, (label,))
 
     def get_files_to_be_written(self):
-        sql = ''' SELECT id, filename_encrypted, filename, encrypted_filesize FROM files
-                    WHERE downloaded=1
-                    AND encrypted=1
-                    AND written=0
-                    '''
+        sql = '''SELECT id,
+                         filename_encrypted,
+                         filename,
+                         encrypted_filesize
+                 FROM files
+                 WHERE downloaded = 1
+                 AND encrypted = 1
+                 AND written = 0'''
         return self.fetchall_from_database(sql)
 
     def get_filecount_by_tapelabel(self, label):
-        sql = ''' SELECT count(*) FROM files
-                    WHERE tape = ?
-                    '''
+        sql = '''SELECT count(*) FROM files
+                 WHERE tape = ?'''
         return self.fetchall_from_database(sql, (label,))
 
     def get_files_by_tapelabel(self, label):
-        sql = ''' SELECT id, filename_encrypted, md5sum_encrypted, filename FROM files
-                    WHERE tape = ?
-                    '''
+        sql = '''SELECT id,
+                        filename_encrypted,
+                        md5sum_encrypted,
+                        filename
+                 FROM files
+                 WHERE tape = ?'''
         return self.fetchall_from_database(sql, (label,))
 
     def mark_tape_as_full(self, label, dt):
         count = self.get_filecount_by_tapelabel(label)[0][0]
-        sql = ''' UPDATE tapedevices
-                  SET full_date = ?,
-                      files_count = ?,
-                      full = 1
-                  WHERE label = ? '''
-        return self.change_entry_in_database(sql, (dt, count, label,))
+        sql = '''UPDATE tapedevices
+                 SET full_date = ?,
+                     files_count = ?,
+                     full = 1
+                 WHERE label = ?'''
+        return self.change_entry_in_database(sql, (dt, count, label))
 
     def update_file_after_write(self, dt, label, did, tape_position):
-        sql = ''' UPDATE files
-                          SET written_date = ?,
-                              tape = ?,
-                              written = 1,
-                              tapeposition = ?
-                          WHERE id = ?'''
-        return self.change_entry_in_database(sql, (dt, label, tape_position, did,))
+        sql = '''UPDATE files
+                 SET written_date = ?,
+                     tape = ?,
+                     written = 1,
+                     tapeposition = ?
+                 WHERE id = ?'''
+        return self.change_entry_in_database(sql, (dt, label, tape_position, did))
 
     def list_duplicates(self):
-        sql = ''' SELECT files.path, files.mtime, alternative_file_names.path, files.filesize
-                            FROM files, alternative_file_names
-                            WHERE files.id = alternative_file_names.files_id
-                            '''
+        sql = '''SELECT files.path,
+                        files.mtime,
+                        alternative_file_names.path,
+                        files.filesize
+                 FROM files, alternative_file_names
+                 WHERE files.id = alternative_file_names.files_id'''
         return self.fetchall_from_database(sql)
 
     def filename_encrypted_already_used(self, filename_encrypted):
-        sql = ''' SELECT id FROM files
-                  WHERE filename_encrypted = ?
-                  '''
+        sql = '''SELECT id FROM files
+                 WHERE filename_encrypted = ?'''
         if len(self.fetchall_from_database(sql, (filename_encrypted,))) > 0:
             return True
         else:
             return False
 
     def dump_filenames_to_for_tapes(self, label):
-        sql = ''' SELECT id, path, filename_encrypted FROM files
-                            WHERE tape = ?
-                            '''
+        sql = '''SELECT id, path, filename_encrypted FROM files
+                 WHERE tape = ?'''
         return self.fetchall_from_database(sql, (label,))
 
     def get_minimum_verified_count(self):
-        sql = ''' SELECT MIN(verified_count) FROM files
-                            LIMIT 1
-                            '''
+        sql = 'SELECT MIN(verified_count) FROM files LIMIT 1'
         return self.fetchall_from_database(sql)
 
     def get_ids_by_verified_count(self, verified_count):
-        sql = ''' SELECT id, filename, filename_encrypted, tape FROM files
-                            WHERE tape NOT NULL
-                            AND verified_count = ?
-                            '''
+        sql = '''SELECT id, filename, filename_encrypted, tape FROM files
+                 WHERE tape NOT NULL
+                 AND verified_count = ?'''
         return self.fetchall_from_database(sql, (verified_count,))
 
     def get_not_deleted_files(self):
-        sql = ''' SELECT id, path FROM files
-                            WHERE deleted != 1
-                            '''
+        sql = '''SELECT id, path FROM files
+                 WHERE deleted != 1'''
         return self.fetchall_from_database(sql)
 
     def get_not_deleted_alternative_files(self):
-        sql = ''' SELECT id, path FROM alternative_file_names
-                            WHERE deleted != 1
-                            '''
+        sql = '''SELECT id, path FROM alternative_file_names
+                 WHERE deleted != 1'''
         return self.fetchall_from_database(sql)
 
     def set_file_deleted(self, fileid):
-        sql = ''' UPDATE files
-                              SET deleted = 1
-                              WHERE id = ?'''
+        sql = '''UPDATE files
+                 SET deleted = 1
+                 WHERE id = ?'''
         return self.change_entry_in_database(sql, (fileid,))
 
     def set_file_alternative_deleted(self, fileid):
-        sql = ''' UPDATE alternative_file_names
-                              SET deleted = 1
-                              WHERE id = ?'''
+        sql = '''UPDATE alternative_file_names
+                 SET deleted = 1
+                 WHERE id = ?'''
         return self.change_entry_in_database(sql, (fileid,))
 
     def get_file_count(self):
-        sql = ''' select ( select count(*) from files WHERE deleted != 1)
-                            + ( select count(*) from alternative_file_names WHERE deleted != 1)
-                            as total_rows
-                            '''
+        sql = '''SELECT (SELECT count(*) FROM files WHERE deleted != 1)
+                 + (SELECT count(*) FROM alternative_file_names WHERE deleted != 1)
+                 AS total_rows'''
         return self.fetchall_from_database(sql)[0][0]
 
     def get_min_file_size(self):
-        sql = ''' select MIN(filesize) from files WHERE deleted != 1'''
+        sql = '''SELECT MIN(filesize) FROM files WHERE deleted != 1'''
         return self.fetchall_from_database(sql)[0][0]
 
     def get_max_file_size(self):
-        sql = ''' select MAX(filesize) from files WHERE deleted != 1'''
+        sql = '''SELECT MAX(filesize) FROM files WHERE deleted != 1'''
         return self.fetchall_from_database(sql)[0][0]
 
     def get_total_file_size(self):
-        sql = ''' select SUM(filesize) from files WHERE deleted != 1'''
+        sql = '''SELECT SUM(filesize) FROM files WHERE deleted != 1'''
         return self.fetchall_from_database(sql)[0][0]
 
     def get_end_of_data_by_tape(self, tag):
-        sql = ''' SELECT end_of_data from tapedevices WHERE label = ?'''
+        sql = '''SELECT end_of_data from tapedevices WHERE label = ?'''
         return self.fetchall_from_database(sql, (tag,))[0][0]
 
     def update_tape_end_position(self, label, tape_position):
         count = self.get_filecount_by_tapelabel(label)[0][0]
-        sql = ''' UPDATE tapedevices
-                  SET end_of_data = ?
-                  WHERE label = ? '''
-        return self.change_entry_in_database(sql, (tape_position, label,))
+        sql = '''UPDATE tapedevices
+                 SET end_of_data = ?
+                 WHERE label = ?'''
+        return self.change_entry_in_database(sql, (tape_position, label))
 
     def add_restore_job(self):
         date = int(time.time())
-        sql = ''' INSERT INTO restore_job (startdate)
-                          VALUES(?) '''
+        sql = '''INSERT INTO restore_job (startdate)
+                 VALUES (?)'''
         return self.change_entry_in_database(sql, (date,))
 
     def add_restore_job_files(self, jobid, fileids):
-        sql = ''' INSERT INTO restore_job_files_map (files_id, restore_job_id)
-                          VALUES(?,?) '''
+        sql = '''INSERT INTO restore_job_files_map (files_id, restore_job_id)
+                 VALUES (?,?)'''
         return self.bulk_insert_entry_in_database(sql, ((id, jobid) for id in fileids))
 
     def get_restore_job_stats_total(self, jobid=None):
-        sql = '''SELECT a.id,a.startdate,a.finished,count(b.files_id),sum(c.filesize), count(DISTINCT c.tape)
-                        from restore_job a
-                        left join restore_job_files_map b on b.restore_job_id = a.id
-                        left join files c on c.id = b.files_id
-                        where {}
-                        group by a.id {}'''
+        sql = '''SELECT a.id,
+                        a.startdate,
+                        a.finished,
+                        COUNT(b.files_id),
+                        SUM(c.filesize),
+                        COUNT(DISTINCT c.tape)
+                 FROM restore_job a
+                 LEFT JOIN restore_job_files_map b ON b.restore_job_id = a.id
+                 LEFT JOIN files c ON c.id = b.files_id
+                 WHERE {}
+                 GROUP BY a.id {}'''
         if jobid is not None:
-            sql = sql.format(f"a.id={jobid}", "")
+            sql = sql.format(f'a.id = {jobid}', '')
         else:
-            sql = sql.format("true", "ORDER BY a.id DESC LIMIT 1")
+            sql = sql.format('true', 'ORDER BY a.id DESC LIMIT 1')
         return self.fetchall_from_database(sql)
 
     def get_restore_job_stats_remaining(self, jobid=None):
-        sql = '''SELECT a.id,a.startdate,a.finished,count(b.files_id),sum(c.filesize), count(DISTINCT c.tape)
-                        from restore_job a
-                        left join restore_job_files_map b on b.restore_job_id = a.id
-                        left join files c on c.id = b.files_id
-                        where b.restored=0 AND {}
-                        group by a.id {}'''
+        sql = '''SELECT a.id,
+                        a.startdate,
+                        a.finished,
+                        count(b.files_id),
+                        sum(c.filesize),
+                        count(DISTINCT c.tape)
+                 FROM restore_job a
+                 LEFT JOIN restore_job_files_map b ON b.restore_job_id = a.id
+                 LEFT JOIN files c ON c.id = b.files_id
+                 WHERE b.restored = 0 AND {}
+                 GROUP BY a.id {}'''
         if jobid is not None:
-            sql = sql.format(f"a.id={jobid}", "")
+            sql = sql.format(f'a.id = {jobid}', '')
         else:
-            sql = sql.format("true", "ORDER BY a.id DESC LIMIT 1")
+            sql = sql.format('true', 'ORDER BY a.id DESC LIMIT 1')
         return self.fetchall_from_database(sql)
 
-    def get_restore_job_files(self, jobid, tape=None):
-        if tape:
-            tape_sql = 'tape=?'
-            args = (jobid, tape)
+    def set_restore_job_finished(self, jobid):
+        sql = '''UPDATE restore_job
+                 SET finished = SELECT strftime('%s', 'now')
+                 WHERE id = ?'''
+        return self.change_entry_in_database(sql, (jobid,))
+
+    def get_latest_restore_job(self):
+        sql = 'SELECT id, startdate FROM restore_job ORDER BY id DESC LIMIT 1'
+        res = self.fetchall_from_database(sql)
+        if res:
+            return res[0][0], res[0][1]
+        else:
+            return None, None
+
+    def get_restore_job_files(self, jobid, tapes=None, restored=False):
+        if tapes:
+            tape_sql = ' or '.join('tape = ?' * len(tapes))
+            args = (jobid, *tapes)
         else:
             tape_sql = 'true'
             args = (jobid,)
 
-        sql = f'''SELECT files_id, filename, path, filesize, tape
-                        from restore_job_files_map a
-                        left join files b on b.id = a.files_id
-                        where restore_job_id=? AND {tape_sql}'''
+        # only print non-restored files if restored is False
+        restored_sql = 'AND a.restored = 0' if not restored else ''
+
+        sql = f'''SELECT files_id,
+                         filename,
+                         path,
+                         filesize,
+                         tape,
+                         restored,
+                         filename_encrypted
+                  FROM restore_job_files_map a
+                  LEFT JOIN files b ON b.id = a.files_id
+                  WHERE restore_job_id = ? AND ({tape_sql}) {restored_sql}'''
 
         return self.fetchall_from_database(sql, args)
 
-    def get_files_like(self, likes=[], tape=None, items=[]):
-        return self.get_files_by_path(likes, tape, items, file_compare="path like ?")
+    def get_files_like(self, likes=[], tape=None, items=[], written=False):
+        return self.get_files_by_path(likes, tape, items, file_compare='path like ?', written=written)
 
-    def get_files_by_path(self, files=[], tape=None, items=[], file_compare="path=?"):
+    def get_files_by_path(self, files=[], tape=None, items=[], file_compare='path = ?', written=False):
         if files:
-            where_files = " or ".join([file_compare] * len(files))
+            where_files = ' or '.join([file_compare] * len(files))
         else:
-            where_files = "true"
+            where_files = 'true'
 
         if items:
-            items_sql = ",".join(items)
+            items_sql = ','.join(items)
         else:
-            items_sql = "*"
+            items_sql = '*'
 
-        sql = f"SELECT {items_sql} FROM files WHERE ({where_files})"
+        sql = f'SELECT {items_sql} FROM files WHERE ({where_files})'
 
         if tape is not None:
-            sql += " and tape=?"
+            sql += ' AND tape = ?'
             files += [tape]
+
+        if written:
+            sql += ' AND written=1'
 
         return self.fetchall_from_database(sql, files)

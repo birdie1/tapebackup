@@ -62,3 +62,6 @@ local-tape-mount-dir: "/mnt/tapedrive"
 ## verify_files: "5%"
 ## verify_files: 20
 verify-files: "5%"
+
+## Directory to put files into on restore
+restore-dir: "restore"

@@ -34,7 +34,7 @@ class Tapelibrary:
                 tag = line[line.find('=') + 1:].rstrip().lstrip()
 
                 ### If blacklisting is in use
-                if lto_whitelist == 0 or lto_whitelist is None:
+                if not lto_whitelist:
                     if tag in self.config['lto-blacklist']:
                         logger.debug('Ignore Tag {} because exists in ignore list in config'.format(tag))
                     elif len(self.database.get_full_tape(tag)) > 0:

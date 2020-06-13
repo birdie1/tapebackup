@@ -4,6 +4,7 @@ import os
 import time
 import threading
 from lib.database import Database
+from pathlib import Path
 
 logger = logging.getLogger()
 
@@ -116,7 +117,36 @@ class Encryption:
             while threading.active_count() > 1:
                 time.sleep(1)
 
-        ## encrypt
-        # openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -in 'videofile.mp4' -out test.enc -k supersicherespasswort
-        ## decrypt
-        # openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -in test.enc -out test.mp4
+    # src relative to tape, dst relative to restore-dir
+    def decrypt_relative(self, src, dst):
+        if 'restore-dir' not in self.config:
+            logging.error("'restore-dir' not configured")
+            sys.exit(1)
+        restore_dir = Path(self.config['restore-dir'])
+
+        if not restore_dir.is_dir():
+            logging.error("'restore-dir' does not exist or is not a directory")
+            sys.exit(1)
+
+        src_path = Path(self.config['local-tape-mount-dir']) / src
+        dst_path = restore_dir / dst
+
+        return self.decrypt(src_path.resolve(), dst_path.resolve())
+
+    def decrypt(self, src, dst):
+        openssl = [
+            'openssl', 'enc', '-d', '-aes-256-cbc', '-pbkdf2', '-iter', '100000',
+            '-in', src, '-out', dst, '-k', self.config['enc-key']
+        ]
+
+        try:
+            subprocess.check_output(openssl)
+            return True
+        except CalledProcessError as e:
+            logging.error(f'Decryption failed: {e}')
+            return False
+
+## encrypt
+# openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -in 'videofile.mp4' -out test.enc -k supersicherespasswort
+## decrypt
+# openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 -in test.enc -out test.mp4
