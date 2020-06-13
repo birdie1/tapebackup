@@ -1,6 +1,7 @@
 import logging
 import subprocess
 import os
+import sys
 import time
 import threading
 import xattr
@@ -9,6 +10,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from lib.database import Database
+from functions.encryption import Encryption
 from lib.tools import Tools
 
 logger = logging.getLogger()
@@ -70,13 +72,15 @@ class Restore:
 
         files = self.database.get_restore_job_files(self.jobid, tapes, restored=False)
         if files:
+            logger.info(f'Restoring {len(files)} files from the loaded tapes')
             self.restore_files(files)
         else:
             logger.info("No files to restore on the loaded tapes")
 
-        next_tapes = self.make_next_tapes_info(self)
+        next_tapes = self.make_next_tapes_info()
         if next_tapes:
-            Tools.table_print(next_tapes, table_format_next_tapes)
+            Tools.table_print(((i, *v) for i,v in next_tapes.items()),
+                self.table_format_next_tapes)
         else:
             logger.info("No more files to restore. Restore job complete.")
             self.database.set_restore_job_finished(self.jobid)
@@ -138,7 +142,7 @@ class Restore:
     def set_latest_job(self):
         self.jobid, _ = self.database.get_latest_restore_job()
         if self.jobid is None:
-            logging.error("No restore job available")
+            logger.error("No restore job available")
             sys.exit(1)
 
     # get file ids for a list of files from the database,
@@ -156,9 +160,7 @@ class Restore:
 
     # restores a list of files from database
     def restore_files(self, files):
-        logger.debug(f'Restoring to {restore_dir}')
         tapes_files = self.group_files_by_tape(files)
-
         for tape, files in tapes_files.items():
             self.restore_from_tape(tape, files)
 
@@ -168,8 +170,8 @@ class Restore:
         self.tapelibrary.ltfs()
 
         ordered_files = self.order_by_startblock(files)
-        for file in ordered_files:
-            self.restore_single_file(self, file[0], file[2], file[6])
+        for file in ordered_files.values():
+            self.restore_single_file(file[0], file[2], file[5])
 
         logger.info(f'Restoring from tape {tape} done')
         self.tapelibrary.unload()
@@ -178,7 +180,7 @@ class Restore:
     def make_next_tapes_info(self):
         files = self.database.get_restore_job_files(self.jobid, restored=False)
         tapes = dict()
-        for _, _, _, size, tape, _ in files:
+        for _, _, _, size, tape, _, _ in files:
             info = (tapes[tape][0] + 1, tapes[tape][1] + size) \
                     if tape in tapes else (1, size)
             tapes[tape] = info
@@ -189,17 +191,19 @@ class Restore:
         for file in files:
             tape = file[4]
             args = file[:4] + file[5:]
-            grouped[tape] = args
+            if tape in grouped:
+                grouped[tape] += [args]
+            else:
+                grouped[tape] = [args]
         return grouped
 
     def order_by_startblock(self, files):
         ordered_files = OrderedDict()
         for file in files:
-            filename_encrypted = file[6]
+            filename_encrypted = file[5]
             src = Path(self.config['local-tape-mount-dir']) / filename_encrypted
 
-            # from ltfs_ordered_copy
-            start_str = xattr.get(src, 'ltfs.startblock')
+            start_str = xattr.getxattr(src.resolve(), 'ltfs.startblock')
             start = int(start_str)
 
             logger.debug(f'{src} starts at {start}')
@@ -208,6 +212,7 @@ class Restore:
         return ordered_files
 
     def restore_single_file(self, file_id, path, filename_encrypted):
+        logger.info(f'Restoring {path}')
         success = self.encryption.decrypt_relative(filename_encrypted, path)
         if success:
             logger.info(f'Restored {path} successfully')

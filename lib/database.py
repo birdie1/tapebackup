@@ -524,7 +524,7 @@ class Database:
 
     def set_restore_job_finished(self, jobid):
         sql = '''UPDATE restore_job
-                 SET finished = SELECT strftime('%s', 'now')
+                 SET finished = strftime('%s', 'now')
                  WHERE id = ?'''
         return self.change_entry_in_database(sql, (jobid,))
 
@@ -538,7 +538,7 @@ class Database:
 
     def get_restore_job_files(self, jobid, tapes=None, restored=False):
         if tapes:
-            tape_sql = ' or '.join('tape = ?' * len(tapes))
+            tape_sql = ' OR '.join(['tape = ?'] * len(tapes))
             args = (jobid, *tapes)
         else:
             tape_sql = 'true'
@@ -584,3 +584,9 @@ class Database:
             sql += ' AND written=1'
 
         return self.fetchall_from_database(sql, files)
+
+    def set_file_restored(self, restore_id, file_id):
+        sql = '''UPDATE restore_job_files_map
+                 SET restored = 1
+                 WHERE restore_job_id = ? AND files_id = ?'''
+        return self.change_entry_in_database(sql, (restore_id, file_id))

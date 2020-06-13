@@ -1,6 +1,7 @@
 import logging
 import subprocess
 import os
+import sys
 import time
 import threading
 from lib.database import Database
@@ -120,12 +121,12 @@ class Encryption:
     # src relative to tape, dst relative to restore-dir
     def decrypt_relative(self, src, dst):
         if 'restore-dir' not in self.config:
-            logging.error("'restore-dir' not configured")
+            logging.error('"restore-dir" not configured')
             sys.exit(1)
         restore_dir = Path(self.config['restore-dir'])
 
         if not restore_dir.is_dir():
-            logging.error("'restore-dir' does not exist or is not a directory")
+            logging.error(f'restore directory "{restore_dir}" does not exist or is not a directory')
             sys.exit(1)
 
         src_path = Path(self.config['local-tape-mount-dir']) / src
@@ -140,10 +141,10 @@ class Encryption:
         ]
 
         try:
-            subprocess.check_output(openssl)
+            subprocess.check_output(openssl, stderr=subprocess.STDOUT)
             return True
-        except CalledProcessError as e:
-            logging.error(f'Decryption failed: {e}')
+        except subprocess.CalledProcessError as e:
+            logging.error(f'Decryption failed: {e.stdout.decode("utf-8").splitlines()[0]}')
             return False
 
 ## encrypt
