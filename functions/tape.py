@@ -281,8 +281,8 @@ class Tape:
                         self.write_file_tar([file], free, next_tape)
                     elif (files_for_next_chunk + file[3]) >= 1048576:
                         self.write_file_tar(files_for_next_chunk, free, next_tape)
-                        files_for_next_chunk = []
-                        files_next_chunk_size = 0
+                        files_for_next_chunk = [file]
+                        files_next_chunk_size = file[3]
                     else:
                         files_for_next_chunk.append(file)
                         files_next_chunk_size += file[3]
