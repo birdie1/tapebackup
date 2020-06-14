@@ -155,6 +155,6 @@ class Tools:
                     raise
 
             logger.debug(f'{src} starts at {start}')
-            start_and_files = [(start, file)]
+            start_and_files.append((start, file))
 
         return [y for x,y in sorted(start_and_files, key=lambda i: i[0])]
