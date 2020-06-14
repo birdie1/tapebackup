@@ -53,7 +53,7 @@ class Tapelibrary:
                     else:
                         logger.debug('Ignore Tag {} because it is not in lto-whitelist'.format(tag))
 
-        logger.debug("Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
+        logger.debug("Execution Time: Get tap tags: {} seconds".format(time.time() - time_started))
         logger.debug("Got following tags for usage: {}".format(tag_in_tapelib))
         return tag_in_tapelib, tags_to_remove_from_library
 
@@ -219,7 +219,7 @@ class Tapelibrary:
         std_out, std_err = mt_st.communicate()
 
         if mt_st.returncode != 0:
-            logger.error("Executing 'mt-st -f /dev/nst0 setblk 64k' failed")
+            logger.error("Setting LTO4 options failed")
             return False
         else:
             return True
@@ -229,13 +229,10 @@ class Tapelibrary:
         mt_st = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         std_out, std_err = mt_st.communicate()
 
-        if mt_st.returncode == 0:
-            if self.get_current_blocksize() == 65536:
-                return True
-            else:
-                logger.error('Set tape blocksize to 65536 failed')
+        if mt_st.returncode == 0 and self.get_current_blocksize() == 65536:
+            return True
         else:
-            logger.error("Executing 'mt-st -f /dev/nst0 setblk 64k' failed")
+            logger.error("Setting block size failed")
         return False
 
     def get_current_block(self):

@@ -138,6 +138,12 @@ class Encryption:
         return self.decrypt(src_path.resolve(), dst_path.resolve())
 
     def decrypt(self, src, dst):
+        if not isinstance(dst, Path):
+            dst = Path(dst)
+        if dst.is_file():
+            logger.error(f'File {dst} already exists, skipping decrypt')
+            return False
+
         openssl = [
             'openssl', 'enc', '-d', '-aes-256-cbc', '-pbkdf2', '-iter', '100000',
             '-in', str(src), '-out', str(dst), '-k', self.config['enc-key']

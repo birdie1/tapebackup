@@ -82,6 +82,7 @@ class Restore:
         if next_tapes:
             Tools.table_print(((i, *v) for i,v in next_tapes.items()),
                 self.table_format_next_tapes)
+            print(f'Full tapes to remove: {", ".join(tags_to_remove_from_library)}')
         else:
             logger.info("No more files to restore. Restore job complete.")
             self.database.set_restore_job_finished(self.jobid)
@@ -176,6 +177,8 @@ class Restore:
         tapes_files = self.group_files_by_tape(files)
         for tape, files in tapes_files.items():
             self.restore_from_tape(tape, files)
+            if self.interrupted:
+                break
 
     def restore_from_tape(self, tape, files):
         logger.info(f'Restoring from tape {tape}')
@@ -195,8 +198,10 @@ class Restore:
     # returns a dictionary containing {tape: (n_files, files_size)}
     def make_next_tapes_info(self):
         files = self.database.get_restore_job_files(self.jobid, restored=False)
-        tapes = dict()
+        tapes = OrderedDict()
         for _, _, _, size, tape, _, _ in files:
+            if not size:
+                size = 0
             info = (tapes[tape][0] + 1, tapes[tape][1] + size) \
                     if tape in tapes else (1, size)
             tapes[tape] = info
