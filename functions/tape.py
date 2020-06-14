@@ -119,10 +119,10 @@ class Tape:
         # Write file or filelist to tape with tar
         commands = ['tar', '-c', '-b128', '-f', self.config['devices']['tapedrive'], '-C', self.config['local-enc-dir']]
         commands.extend(filenames_enc)
-        tar = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        tar = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
         std_out, std_err = tar.communicate()
         if tar.returncode != 0:
-            logger.error('Failed writing tar to tape, manual check is required')
+            logger.error('Failed writing tar to tape, manual check is required. Returncode: {}, Error: {}'.format(tar.returncode, std_err))
             sys.exit(1)
 
         logger.debug("Execution Time: Copy files via tar to tape: {} seconds".format(time.time() - time_started))

@@ -260,7 +260,7 @@ class Tapelibrary:
     def seek_to_end_of_data(self, expected_end):
         logger.info("Seeking tape to position {}".format(expected_end))
         time_started = time.time()
-        commands = ['mt-st', '-f', self.config['devices']['tapedrive'], 'seek', expected_end]
+        commands = ['mt-st', '-f', self.config['devices']['tapedrive'], 'seek', str(expected_end)]
         mt_st = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         std_out, std_err = mt_st.communicate()
         logger.debug("Execution Time: Seeking tape to position {}: {} seconds".format(expected_end, time.time() - time_started))
