@@ -119,7 +119,7 @@ class Encryption:
                 time.sleep(1)
 
     # src relative to tape, dst relative to restore-dir
-    def decrypt_relative(self, src, dst):
+    def decrypt_relative(self, src, dst, mkdir=False):
         if 'restore-dir' not in self.config:
             logging.error('"restore-dir" not configured')
             sys.exit(1)
@@ -132,12 +132,15 @@ class Encryption:
         src_path = Path(self.config['local-tape-mount-dir']) / src
         dst_path = restore_dir / dst
 
+        if mkdir:
+            dst_path.parent.mkdir(parents=True, exist_ok=True)
+
         return self.decrypt(src_path.resolve(), dst_path.resolve())
 
     def decrypt(self, src, dst):
         openssl = [
             'openssl', 'enc', '-d', '-aes-256-cbc', '-pbkdf2', '-iter', '100000',
-            '-in', src, '-out', dst, '-k', self.config['enc-key']
+            '-in', str(src), '-out', str(dst), '-k', self.config['enc-key']
         ]
 
         try:
@@ -145,6 +148,8 @@ class Encryption:
             return True
         except subprocess.CalledProcessError as e:
             logging.error(f'Decryption failed: {e.stdout.decode("utf-8").splitlines()[0]}')
+            if dst.is_file() and dst.stat().st_size == 0:
+                dst.unlink()
             return False
 
 ## encrypt

@@ -1,6 +1,7 @@
+import errno
 import logging
-import subprocess
 import os
+import subprocess
 import sys
 import time
 import threading
@@ -146,6 +147,7 @@ class Restore:
             Tools.table_print(files, self.table_format_status_files)
 
     def read_filelist(self, filelist):
+        logger.info(f'Reading filelist {filelist}')
         with open(filelist, "r") as f:
             return [l.rstrip("\n") for l in f]
 
@@ -158,6 +160,7 @@ class Restore:
     # get file ids for a list of files from the database,
     # warn if some do not exist and optionally filter by a tape name
     def resolve_file_ids(self, files, tape=None):
+        logger.debug(f'Resolving {len(files)} files in database')
         db_files = self.database.get_files_like(files, tape,
             items=['id', 'path'], written=True)
         for file in files:
@@ -182,6 +185,9 @@ class Restore:
         ordered_files = self.order_by_startblock(files)
         for file in ordered_files.values():
             self.restore_single_file(file[0], file[2], file[5])
+            if self.interrupted:
+                logging.info(f'Restore interrupted')
+                break
 
         logger.info(f'Restoring from tape {tape} done')
         self.tapelibrary.unload()
@@ -213,8 +219,16 @@ class Restore:
             filename_encrypted = file[5]
             src = Path(self.config['local-tape-mount-dir']) / filename_encrypted
 
-            start_str = xattr.getxattr(src.resolve(), 'ltfs.startblock')
-            start = int(start_str)
+            try:
+                start_str = xattr.getxattr(src.resolve(), 'ltfs.startblock')
+                start = int(start_str)
+            except OSError as e:
+                if e.errno == errno.ENODATA:
+                    logging.debug(f'No xattrs available for {filename_encrypted}, falling back to inode ordering')
+                    stat_result = src.stat()
+                    start = stat_result.st_ino
+                else:
+                    raise
 
             logger.debug(f'{src} starts at {start}')
             ordered_files[start] = file
@@ -223,9 +237,9 @@ class Restore:
 
     def restore_single_file(self, file_id, path, filename_encrypted):
         logger.info(f'Restoring {path}')
-        success = self.encryption.decrypt_relative(filename_encrypted, path)
+        success = self.encryption.decrypt_relative(filename_encrypted, path, mkdir=True)
         if success:
-            logger.info(f'Restored {path} successfully')
+            logger.debug(f'Restored {path} successfully')
             self.database.set_file_restored(self.jobid, file_id)
         else:
             logger.error(f'Restoring {path} failed')
