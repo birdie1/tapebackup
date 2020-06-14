@@ -85,8 +85,18 @@ class Restore:
             logger.info("No more files to restore. Restore job complete.")
             self.database.set_restore_job_finished(self.jobid)
 
-    def abort(self):
-        pass
+    def abort(self, jobid=None):
+        if jobid is None:
+            self.set_latest_job()
+        else:
+            self.jobid = jobid
+
+        if self.jobid is None:
+            logger.error("No restore job available")
+            sys.exit(1)
+        else:
+            logger.info(f"Deleting restore job {self.jobid}")
+            self.database.delete_restore_job(self.jobid)
 
     table_format_list = [
         ('Job ID',          lambda i: i[0]),
@@ -142,7 +152,7 @@ class Restore:
     def set_latest_job(self):
         self.jobid, _ = self.database.get_latest_restore_job()
         if self.jobid is None:
-            logger.error("No restore job available")
+            logger.error('No restore job available')
             sys.exit(1)
 
     # get file ids for a list of files from the database,
@@ -155,7 +165,7 @@ class Restore:
             if '%' in file:
                 continue
             if not any(path == file for id, path in db_files):
-                logger.warning("File {file} not found")
+                logger.warning(f'File {file} not found')
         return [id for id,file in db_files]
 
     # restores a list of files from database

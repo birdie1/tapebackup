@@ -95,7 +95,7 @@ class Database:
                     files_id INTEGER NOT NULL,
                     restore_job_id INTEGER NOT NULL,
                     FOREIGN KEY (files_id) REFERENCES files (id),
-                    FOREIGN KEY (restore_job_id) REFERENCES restore_job (id)
+                    FOREIGN KEY (restore_job_id) REFERENCES restore_job (id) ON DELETE CASCADE
                     );'''
 
         try:
@@ -485,6 +485,11 @@ class Database:
         sql = '''INSERT INTO restore_job_files_map (files_id, restore_job_id)
                  VALUES (?,?)'''
         return self.bulk_insert_entry_in_database(sql, ((id, jobid) for id in fileids))
+
+    def delete_restore_job(self, id):
+        sql = '''DELETE FROM restore_job
+                 WHERE id = ?'''
+        self.change_entry_in_database(sql, (id,))
 
     def get_restore_job_stats_total(self, jobid=None):
         sql = '''SELECT a.id,

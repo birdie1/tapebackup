@@ -165,8 +165,10 @@ if __name__ == "__main__":
     subparser_restore_start.add_argument('-t', '--tape', type=str, help='Only restore from this tape')
     subparser_restore_start.add_argument('-l', '--filelist', type=str, help='Read paths from file list to restore')
     subparser_restore_start.add_argument('files', nargs='*', help='Select files by absolute path or with wildcard')
-    subparser_restore_sub.add_parser('continue', help='Restore job will be continued')
-    subparser_restore_sub.add_parser('abort', help='Abort restore (delete from transactions db table)')
+    subparser_restore_continue = subparser_restore_sub.add_parser('continue', help='Restore job will be continued')
+    subparser_restore_continue.add_argument('jobid', nargs='?', help='Display status of specific restore job')
+    subparser_restore_abort = subparser_restore_sub.add_parser('abort', help='Abort restore (delete from transactions db table)')
+    subparser_restore_abort.add_argument('jobid', nargs='?', help='Display status of specific restore job')
     subparser_restore_sub.add_parser('list', help='List restore jobs')
     subparser_restore_status = subparser_restore_sub.add_parser('status', help='Print restore job status')
     subparser_restore_status.add_argument("-v", "--verbose", action="store_true", dest='verbose_list', help="Additionally print files in this restore job")
@@ -283,7 +285,7 @@ if __name__ == "__main__":
         elif args.command_sub == "continue":
             current_class.cont()
         elif args.command_sub == "abort":
-            current_class.abort()
+            current_class.abort(args.jobid)
         elif args.command_sub == "status":
             current_class.status(args.jobid, args.verbose_list)
         elif args.command_sub == "list":
