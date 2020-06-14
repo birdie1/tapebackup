@@ -1,16 +1,6 @@
-import errno
 import logging
-import os
-import subprocess
 import sys
-import time
-import threading
-import xattr
-from tabulate import tabulate
-from collections import OrderedDict
-from pathlib import Path
 
-from lib.database import Database
 from functions.encryption import Encryption
 from lib.tools import Tools
 
@@ -80,8 +70,7 @@ class Restore:
 
         next_tapes = self.make_next_tapes_info()
         if next_tapes:
-            Tools.table_print(((i, *v) for i,v in next_tapes.items()),
-                self.table_format_next_tapes)
+            Tools.table_print(next_tapes, self.table_format_next_tapes)
             print(f'Full tapes to remove: {", ".join(tags_to_remove_from_library)}')
         else:
             logger.info("No more files to restore. Restore job complete.")
@@ -185,8 +174,8 @@ class Restore:
         self.tapelibrary.load(tape)
         self.tapelibrary.ltfs()
 
-        ordered_files = self.order_by_startblock(files)
-        for file in ordered_files.values():
+        ordered_files = self.tools.order_by_startblock(files)
+        for file in ordered_files:
             self.restore_single_file(file[0], file[2], file[5])
             if self.interrupted:
                 logging.info(f'Restore interrupted')
@@ -198,14 +187,14 @@ class Restore:
     # returns a dictionary containing {tape: (n_files, files_size)}
     def make_next_tapes_info(self):
         files = self.database.get_restore_job_files(self.jobid, restored=False)
-        tapes = OrderedDict()
+        tapes = dict()
         for _, _, _, size, tape, _, _ in files:
             if not size:
                 size = 0
             info = (tapes[tape][0] + 1, tapes[tape][1] + size) \
                     if tape in tapes else (1, size)
             tapes[tape] = info
-        return tapes
+        return list((x,*y) for x,y in sorted(tapes.items(), key=lambda i: i[0]))
 
     def group_files_by_tape(self, files):
         grouped = dict()
@@ -217,28 +206,6 @@ class Restore:
             else:
                 grouped[tape] = [args]
         return grouped
-
-    def order_by_startblock(self, files):
-        ordered_files = OrderedDict()
-        for file in files:
-            filename_encrypted = file[5]
-            src = Path(self.config['local-tape-mount-dir']) / filename_encrypted
-
-            try:
-                start_str = xattr.getxattr(src.resolve(), 'ltfs.startblock')
-                start = int(start_str)
-            except OSError as e:
-                if e.errno == errno.ENODATA:
-                    logging.debug(f'No xattrs available for {filename_encrypted}, falling back to inode ordering')
-                    stat_result = src.stat()
-                    start = stat_result.st_ino
-                else:
-                    raise
-
-            logger.debug(f'{src} starts at {start}')
-            ordered_files[start] = file
-
-        return ordered_files
 
     def restore_single_file(self, file_id, path, filename_encrypted):
         logger.info(f'Restoring {path}')

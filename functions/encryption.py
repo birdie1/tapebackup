@@ -150,7 +150,7 @@ class Encryption:
         ]
 
         try:
-            subprocess.check_output(openssl, stderr=subprocess.STDOUT)
+            subprocess.check_output(openssl, stderr=subprocess.STDOUT, preexec_fn=os.setpgrp)
             return True
         except subprocess.CalledProcessError as e:
             logging.error(f'Decryption failed: {e.stdout.decode("utf-8").splitlines()[0]}')

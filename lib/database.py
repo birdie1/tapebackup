@@ -367,11 +367,15 @@ class Database:
 
     def get_files_by_tapelabel(self, label):
         sql = '''SELECT id,
-                        filename_encrypted,
+                        filename,
+                        path,
+                        filesize,
                         md5sum_encrypted,
-                        filename
+                        filename_encrypted,
+                        tapeposition
                  FROM files
-                 WHERE tape = ?'''
+                 WHERE tape = ?
+                 ORDER BY tapeposition'''
         return self.fetchall_from_database(sql, (label,))
 
     def mark_tape_as_full(self, label, dt):

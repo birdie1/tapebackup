@@ -257,23 +257,24 @@ class Tapelibrary:
                 return int(x.group(1))
         return False
 
-    def seek_to_end_of_data(self, expected_end):
-        logger.info("Seeking tape to position {}".format(expected_end))
+    def seek(self, position):
+        logger.info("Seeking tape to position {}".format(position))
         time_started = time.time()
-        commands = ['mt-st', '-f', self.config['devices']['tapedrive'], 'seek', str(expected_end)]
+        commands = ['mt-st', '-f', self.config['devices']['tapedrive'], 'seek', str(position)]
         mt_st = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         std_out, std_err = mt_st.communicate()
-        logger.debug("Execution Time: Seeking tape to position {}: {} seconds".format(expected_end, time.time() - time_started))
+        logger.debug(
+            "Execution Time: Seeking tape to position {}: {} seconds".format(position, time.time() - time_started))
 
         if mt_st.returncode == 0:
-            if self.get_current_block() == expected_end:
+            if self.get_current_block() == position:
                 logger.debug("Tape is on position {}".format(self.get_current_block()))
                 return True
             else:
-                logger.error("Tape is on position {}, expected {}".format(self.get_current_block(), expected_end))
+                logger.error("Tape is on position {}, expected {}".format(self.get_current_block(), position))
                 sys.exit(1)
         else:
-            logger.error("Executing 'mt-st -f /dev/nst0 seek {}' failed".format(expected_end))
+            logger.error("Executing 'mt-st -f /dev/nst0 seek {}' failed".format(position))
             sys.exit(1)
 
     def get_lto4_size_stat(self):

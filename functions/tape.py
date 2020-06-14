@@ -64,17 +64,38 @@ class Tape:
         print("")
         print("Please remove following tapes from library ({}): {}".format(len(tapes_to_remove), tapes_to_remove))
 
-    def test_backup_pieces(self, filelist, verify_files):
-        if type(verify_files) == int:
-            filecount_to_test = verify_files
+    def filecount_from_verify_files_config(self, filelist):
+        if type(self.config['verify-files']) == int:
+            return self.config['verify-files']
         else:
-            filecount_to_test = int(len(filelist) * int(verify_files[0:verify_files.index("%")]) / 100)
+            return int(len(filelist) * int(self.config['verify-files'][0:self.config['verify-files'].index("%")]) / 100)
 
+    def test_backup_pieces_ltfs(self, filelist, filecount_to_test):
         logger.info("Testing {} files md5sum".format(filecount_to_test))
-        for i in range(filecount_to_test):
-            index = random.randrange(0, len(filelist))
-            logger.info("Testing md5sum of file {}".format(filelist[index][3]))
-            if self.tools.md5sum("{}/{}".format(self.config['local-tape-mount-dir'], filelist[index][1])) != filelist[index][2]:
+
+        files = self.tools.order_by_startblock(random.choices(filelist, k=filecount_to_test))
+
+        for file in files:
+            logger.info("Testing md5sum of file {}".format(file[1]))
+            if self.tools.md5sum("{}/{}".format(self.config['local-tape-mount-dir'], file[5])) != file[4]:
+                logger.info("md5sum of {} (id: {}) is wrong: exiting!".format(file[1], file[0]))
+                return False
+
+            if self.interrupted:
+                break
+        return True
+
+    def test_backup_pieces_tar(self, filelist, filecount_to_test):
+        logger.info("Testing {} files md5sum".format(filecount_to_test))
+
+        files = sorted(random.choices(filelist, k=filecount_to_test), key=lambda i: i[6])
+
+        for file in files:
+            logger.info("Testing md5sum of file {}".format(file[1]))
+
+            self.tapelibrary.seek(file[6])
+            if self.tools.md5sum_tar(self.config['devices']['tapedrive']) != file[4]:
+                logger.info("md5sum of {} (id: {}) is wrong: exiting!".format(file[1], file[0]))
                 return False
 
             if self.interrupted:
@@ -131,11 +152,13 @@ class Tape:
         new_tape_position = self.tapelibrary.get_current_block()
         self.database.update_tape_end_position(tape, new_tape_position)
 
-    def full_tape(self, tape):
+    def tape_is_full_ltfs(self, tape):
+        # For LTO-5 and above with LTFS support
         logger.warning(
             "Tape is full: I am testing now a few media, writing summary into database and unloading tape")
 
-        if not self.test_backup_pieces(self.database.get_files_by_tapelabel(tape), self.config['verify-files']):
+        files = self.database.get_files_by_tapelabel(tape)
+        if not self.test_backup_pieces_ltfs(files, self.filecount_from_verify_files_config(files)):
             logger.error(
                 "md5sum on tape not equal to database. Stopping everything. Need manual check of the tape!")
             logger.error("If you do not use this tape anymore, or want to write all data again, you need to manual "
@@ -185,6 +208,24 @@ class Tape:
         self.tapelibrary.unload()
         return True
 
+    def tape_is_full_tar(self, tape):
+        ## For LTO-4
+        logger.warning(
+            "Tape is full: I am testing now a few media, writing summary into database and unloading tape")
+
+        files = self.database.get_files_by_tapelabel(tape)
+        if not self.test_backup_pieces_tar(files, self.filecount_from_verify_files_config(files)):
+            logger.error(
+                "md5sum on tape not equal to database. Stopping everything. Need manual check of the tape!")
+            logger.error("If you do not use this tape anymore, or want to write all data again, you need to manual "
+                         "modify database. These file IDs were written to tape: {}".format(
+                self.database.get_files_by_tapelabel(tape)
+            ))
+            return False
+
+        self.database.mark_tape_as_full(tape, int(time.time()))
+        ## TODO: Write DATABASE and stuff to file, see tape_is_full_ltfs
+
     def write(self):
         full = False
         tapes, tapes_to_remove = self.tapelibrary.get_tapes_tags_from_library()
@@ -227,7 +268,7 @@ class Tape:
 
                 ## Check if enough space on tape, otherwise unmount and use next tape
                 if file[3] > (free - 10737418240):
-                    full = self.full_tape(next_tape)
+                    full = self.tape_is_full_ltfs(next_tape)
                     break
                 else:
                     self.write_file_ltfs(file[0], file[1], file[2], file[3], free, next_tape)
@@ -247,9 +288,9 @@ class Tape:
             time_started = time.time()
             eod = self.database.get_end_of_data_by_tape(next_tape)
             if eod is None:
-                self.tapelibrary.seek_to_end_of_data(0)
+                self.tapelibrary.seek(0)
             else:
-                self.tapelibrary.seek_to_end_of_data(eod)
+                self.tapelibrary.seek(eod)
             logger.debug("Execution Time: Seek to end of data: {} seconds".format(time.time() - time_started))
 
             ## Get free Tapesize
@@ -273,13 +314,12 @@ class Tape:
                         self.write_file_tar(files_for_next_chunk, free, next_tape)
                         files_for_next_chunk.append(file)
                         files_next_chunk_size += file[3]
-                    # TODO: Special full function for lto-4
-                    #full = self.full_tape(next_tape)
+                    full = self.tape_is_full_tar(next_tape)
                     break
                 else:
                     if file[3] >= 1048576:
                         self.write_file_tar([file], free, next_tape)
-                    elif (files_for_next_chunk + file[3]) >= 1048576:
+                    elif (files_next_chunk_size + file[3]) >= 1048576:
                         self.write_file_tar(files_for_next_chunk, free, next_tape)
                         files_for_next_chunk = [file]
                         files_next_chunk_size = file[3]

@@ -1,3 +1,4 @@
+import errno
 import logging
 import hashlib
 import os
@@ -5,13 +6,14 @@ import re
 import math
 import string
 import secrets
+import tarfile
+import xattr
 from functools import partial
 from datetime import datetime
 from tabulate import tabulate
+from pathlib import Path
 
 logger = logging.getLogger()
-
-
 
 class Tools:
     def __init__(self, config, database):
@@ -19,12 +21,23 @@ class Tools:
         self.database = database
         self.alphabet = string.ascii_letters + string.digits
 
-    def md5sum(self, filename):
-        with open(filename, mode='rb') as f:
-            d = hashlib.md5()
-            for buf in iter(partial(f.read, 4096), b''):
-                d.update(buf)
+    @staticmethod
+    def _md5sum(reader):
+        d = hashlib.md5()
+        for buf in iter(partial(reader.read, 4096), b''):
+            d.update(buf)
         return d.hexdigest()
+
+    @classmethod
+    def md5sum(cls, filename):
+        with open(filename, mode='rb') as f:
+            return cls._md5sum(f)
+
+    @classmethod
+    def md5sum_tar(cls, archive):
+        with tarfile.open(archive, mode='r|') as t:
+            f = t.extractfile(t.next())
+            return cls._md5sum(f)
 
     def strip_base_path(self, fullpath, partpath):
         return os.path.relpath(fullpath, partpath)
@@ -123,3 +136,25 @@ class Tools:
         headers = (header for header,formatter in format)
         table = tabulate(data, headers=headers, tablefmt='grid')
         print(table)
+
+    def order_by_startblock(self, files):
+        start_and_files = list()
+        for file in files:
+            filename_encrypted = file[5]
+            src = Path(self.config['local-tape-mount-dir']) / filename_encrypted
+
+            try:
+                start_str = xattr.getxattr(src.resolve(), 'ltfs.startblock')
+                start = int(start_str)
+            except OSError as e:
+                if e.errno == errno.ENODATA:
+                    logging.debug(f'No xattrs available for {filename_encrypted}, falling back to inode ordering')
+                    stat_result = src.stat()
+                    start = stat_result.st_ino
+                else:
+                    raise
+
+            logger.debug(f'{src} starts at {start}')
+            start_and_files = [(start, file)]
+
+        return [y for x,y in sorted(start_and_files, key=lambda i: i[0])]
