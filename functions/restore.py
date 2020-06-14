@@ -112,13 +112,13 @@ class Restore:
     table_format_status = [
         ('#',           lambda i: i[-1]),
         ('Files',       lambda i: i[3]),
-        ('Filesize',    lambda i: i[4]),
+        ('Filesize',    lambda i: Tools.convert_size(i[4]) if isinstance(i[4], int) else i[4]),
         ('Tapes',       lambda i: i[5]),
     ]
 
     table_format_status_files = [
         ('Filename',    lambda i: i[1]),
-        ('Filesize',    lambda i: i[3]),
+        ('Filesize',    lambda i: Tools.convert_size(i[3])),
         ('Tape',        lambda i: i[4]),
         ('Restored',    lambda i: 'Yes' if i[5] else 'No'),
     ]
@@ -135,7 +135,7 @@ class Restore:
         table_data = [list(stats_t) + ["Total"]]
         table_data += [[None]*3 + [
             f"{stats_r[3]} ({stats_r[3]/stats_t[3]*100:.2f}%)",
-            f"{stats_r[4]} ({stats_r[4]/stats_t[4]*100:.2f}%)",
+            f"{Tools.convert_size(stats_r[4])} ({stats_r[4]/stats_t[4]*100:.2f}%)",
             f"{stats_r[5]} ({stats_r[5]/stats_t[5]*100:.2f}%)",
             "Remaining"
         ]]
