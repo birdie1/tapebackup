@@ -1,0 +1,3 @@
+# these rules generate rules for the /dev/changer* symlinks
+
+ACTION=="add", KERNEL=="sg[0-9]*", SUBSYSTEM=="scsi_generic", ATTRS{type}=="8", SYMLINK+="changer changer-%k", MODE="0660", GROUP="disk"

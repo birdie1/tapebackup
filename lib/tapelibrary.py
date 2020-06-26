@@ -21,6 +21,11 @@ class Tapelibrary:
         tag_in_tapelib = []
         tags_to_remove_from_library = []
 
+        error = mtx.stderr.readlines()
+        if len(error) > 0:
+            logger.error(error[0])
+            sys.exit(1)
+
         try:
             lto_whitelist = len(self.config['lto-whitelist'])
         except TypeError:

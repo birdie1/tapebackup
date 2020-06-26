@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.DEBUG,
 logger = logging.getLogger()
 
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
+handler.setLevel(logging.INFO)
 formatter = logging.Formatter('[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)

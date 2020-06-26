@@ -142,7 +142,7 @@ class Encryption:
             dst = Path(dst)
         if dst.is_file():
             logger.error(f'File {dst} already exists, skipping decrypt')
-            return False
+            return True
 
         openssl = [
             'openssl', 'enc', '-d', '-aes-256-cbc', '-pbkdf2', '-iter', '100000',

@@ -31,6 +31,10 @@ class Restore:
             files += self.read_filelist(filelist)
 
         file_ids = self.resolve_file_ids(files, tape)
+        if not file_ids:
+            logger.error("None of the specified files found")
+            return
+
         self.jobid = self.database.add_restore_job()
         self.database.add_restore_job_files(self.jobid, file_ids)
 
@@ -120,9 +124,17 @@ class Restore:
         else:
             self.jobid = jobid
 
+        if not self.jobid:
+            logging.error("No restore job available")
+            sys.exit(1)
+
         table = []
         stats_t = self.database.get_restore_job_stats_total(self.jobid)[0]
-        stats_r = self.database.get_restore_job_stats_remaining(self.jobid)[0]
+        stats_r = self.database.get_restore_job_stats_remaining(self.jobid)
+        if stats_r:
+            stats_r = stats_r[0]
+        else:
+            stats_r = [0]*6
         table_data = [list(stats_t) + ["Total"]]
         table_data += [[None]*3 + [
             f"{stats_r[3]} ({stats_r[3]/stats_t[3]*100:.2f}%)",
