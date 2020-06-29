@@ -64,4 +64,11 @@ local-tape-mount-dir: "/mnt/tapedrive"
 verify-files: "5%"
 
 ## Directory to put files into on restore
-restore-dir: "restore"
+restore-dir: "/mnt/restore"
+
+## Specify if you want to keep some free space on the written tapes.
+## Useful if you have an head error and can't write the last x percent of every tape.
+## Use Number[Unit] (K/M/G/T/P/E or nothing for Byte) or percent
+#keep-free: "5%"
+#keep-free: 100G
+tape-keep-free: 0
