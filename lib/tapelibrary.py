@@ -96,17 +96,22 @@ class Tapelibrary:
         else:
             logger.info("Tape {} loaded successfully".format(tag))
 
+    def unmount(self):
+        time_started = time.time()
+        logger.debug("Unmounting: {}".format(self.config['local-tape-mount-dir']))
+        commands = ['umount', self.config['local-tape-mount-dir']]
+        umount = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if len(umount.stderr.readlines()) > 0:
+            logger.debug("Execution Time: Unmounting tape: {} seconds".format(time.time() - time_started))
+            logger.error("Cant unmount, giving up")
+            sys.exit(1)
+        logger.debug("Execution Time: Unmounting tape: {} seconds".format(time.time() - time_started))
 
     def unload(self):
-        time_started = time.time()
         if os.path.ismount(self.config['local-tape-mount-dir']):
-            logger.debug("Unmounting: {}".format(self.config['local-tape-mount-dir']))
-            commands = ['umount', self.config['local-tape-mount-dir']]
-            umount = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if len(umount.stderr.readlines()) > 0:
-                logger.error("Cant unmount, giving up")
-                sys.exit(1)
+            self.unmount()
 
+        time_started = time.time()
         commands = ['mtx', '-f', self.config['devices']['tapelib'], 'unload']
         mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -146,12 +151,23 @@ class Tapelibrary:
 
     def mkltfs(self):
         time_started = time.time()
-        commands = ['mkltfs', '-d', self.config['devices']['tapedrive']]
+        commands = ['mkltfs', '-d', self.config['devices']['tapedrive'], '--no-compression']
         ltfs = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         std_out, std_err = ltfs.communicate()
 
         logger.info("Formating Tape: {}".format(std_out))
-        logger.debug("Execution Time: Make LTFS Filesystem: {} seconds".format(time.time() - time_started))
+        logger.debug("Execution Time: Make LTFS: {} seconds".format(time.time() - time_started))
+
+    def force_mkltfs(self):
+        # Caution! This will force overriding existing tape. Use it only in case of 'No Space left on device' problems!
+        if os.path.ismount(self.config['local-tape-mount-dir']):
+            self.unmount()
+        time_started = time.time()
+        commands = ['mkltfs', '-f', '-d', self.config['devices']['tapedrive'], '--no-compression']
+        ltfs = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        std_out, std_err = ltfs.communicate()
+
+        logger.debug("Execution Time: Force making LTFS: {} seconds".format(time.time() - time_started))
 
     def mount_ltfs(self):
         time_started = time.time()

@@ -600,3 +600,12 @@ class Database:
                  SET restored = 1
                  WHERE restore_job_id = ? AND files_id = ?'''
         return self.change_entry_in_database(sql, (restore_id, file_id))
+
+    def revert_written_to_tape_by_label(self, label):
+        # Use with caution! This will remove written and tape dependencies from all files attached to given label
+        sql = '''UPDATE files
+                 SET written = 0,
+                 written_date = NULL,
+                 tape = NULL
+                 WHERE tape = ?'''
+        return self.change_entry_in_database(sql, (label,))

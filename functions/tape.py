@@ -103,16 +103,27 @@ class Tape:
         return True
 
     def write_file_ltfs(self, id, filename, orig_filename, filesize, free, tape):
-        logger.debug("Tape: Free: {}, Fileid: {}, Filesize: {}".format(
-            free,
-            id,
-            filesize
-        ))
+        logger.debug(f"Tape: Free: {free}, Fileid: {id}, Filesize: {filesize}")
 
-        logger.info("Writing file to tape: {}".format(orig_filename))
+        logger.info(f"Writing file to tape: {orig_filename}")
         time_started = time.time()
-        shutil.copy2("{}/{}".format(self.config['local-enc-dir'], filename), "{}/".format(self.config['local-tape-mount-dir']))
-        logger.debug("Execution Time: Copy file to tape: {} seconds".format(time.time() - time_started))
+        try:
+            shutil.copy2(f"{self.config['local-enc-dir']}/{filename}", f"{self.config['local-tape-mount-dir']}/")
+        except OSError as error:
+            if '[Errno 28]' in error:
+                logger.error("Tapedevice reports full filesystem. I will revert all files marked as written on this tape and force format this device!")
+                logger.error(f"Last reported free size was: {free} ({self.tools.convert_size(free)}), now it shows full!")
+                logger.error("This can have different reasons, including a broken drive head. If you are using HPE drives, you can use the tool 'HPE Library and Tape Tools' to check your drive.")
+                logger.error("If it happens more often, you should consider to activate the '' option in config.yml")
+                logger.error(f"Reverting {self.database.get_files_by_tapelabel(tape)} file entries.")
+                self.database.revert_written_to_tape_by_label(tape)
+                self.tapelibrary.force_mkltfs()
+                logger.error("Revert files and force format device finished. Exiting now!")
+                sys.exit(1)
+            else:
+                logger.error(f"Unknown OS Error '{error}', exiting!")
+                logger.error(f"You have now stale file entries in database and maybe a broken LTFS, you need to manually format this tape and set written=0, written_date=NULL and tape=NULL on files which has this tape '{tape}' assigned")
+        logger.debug(f"Execution Time: Copy file to tape: {time.time() - time_started} seconds")
         self.database.update_file_after_write(int(time.time()), tape, id, None)
 
     def write_file_tar(self, filelist, free, tape):
@@ -261,13 +272,21 @@ class Tape:
             ))
             logger.debug("Execution Time: Getting tape space info: {} seconds".format(time.time() - time_started))
 
+            if "%" in self.config['tape-keep-free']:
+                tape_keep_free = int(st.f_bavail * st.f_frsize *
+                                     int(self.config['tape-keep-free'][0:self.config['tape-keep-free'].index("%")]) /
+                                     100)
+            else:
+                tape_keep_free = self.tools.back_convert_size(self.config['tape-keep-free'])
+            logger.debug(f"Keep {tape_keep_free} ({self.tools.convert_size(tape_keep_free)}) free on tape given by config file!")
+
             files = self.database.get_files_to_be_written()
             for file in files:
                 st = os.statvfs(self.config['local-tape-mount-dir'])
                 free = (st.f_bavail * st.f_frsize)
 
                 ## Check if enough space on tape, otherwise unmount and use next tape
-                if file[3] > (free - 10737418240):
+                if file[3] > (free - tape_keep_free - 10737418240):
                     full = self.tape_is_full_ltfs(next_tape)
                     break
                 else:
