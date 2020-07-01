@@ -156,17 +156,28 @@ class Tapelibrary:
         std_out, std_err = ltfs.communicate()
 
         logger.info("Formating Tape: {}".format(std_out))
+        logger.debug(f"Return code: {ltfs.returncode}")
+        logger.debug(f"std out: {std_out}")
+        logger.debug(f"std err: {std_err}")
         logger.debug("Execution Time: Make LTFS: {} seconds".format(time.time() - time_started))
 
     def force_mkltfs(self):
         # Caution! This will force overriding existing tape. Use it only in case of 'No Space left on device' problems!
         if os.path.ismount(self.config['local-tape-mount-dir']):
             self.unmount()
+
+        # Add sleep to prevent tapedrive from being locked
+        time.sleep(20)
+
         time_started = time.time()
         commands = ['mkltfs', '-f', '-d', self.config['devices']['tapedrive'], '--no-compression']
         ltfs = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         std_out, std_err = ltfs.communicate()
 
+        if ltfs.returncode != 0:
+            logger.debug(f"Return code: {ltfs.returncode}")
+            logger.debug(f"std out: {std_out}")
+            logger.debug(f"std err: {std_err}")
         logger.debug("Execution Time: Force making LTFS: {} seconds".format(time.time() - time_started))
 
     def mount_ltfs(self):

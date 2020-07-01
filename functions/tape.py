@@ -163,7 +163,7 @@ class Tape:
         new_tape_position = self.tapelibrary.get_current_block()
         self.database.update_tape_end_position(tape, new_tape_position)
 
-    def tape_is_full_ltfs(self, tape):
+    def tape_is_full_ltfs(self, tape, free):
         # For LTO-5 and above with LTFS support
         logger.warning(
             f"Tape is fulli ({self.tools.convert_size(free)}): I am testing now a few media, writing summary into database and unloading tape")
@@ -219,7 +219,7 @@ class Tape:
         self.tapelibrary.unload()
         return True
 
-    def tape_is_full_tar(self, tape):
+    def tape_is_full_tar(self, tape, free):
         ## For LTO-4
         logger.warning(
             "Tape is full: I am testing now a few media, writing summary into database and unloading tape")
