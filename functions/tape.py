@@ -166,7 +166,7 @@ class Tape:
     def tape_is_full_ltfs(self, tape, free):
         # For LTO-5 and above with LTFS support
         logger.warning(
-            f"Tape is fulli ({self.tools.convert_size(free)}): I am testing now a few media, writing summary into database and unloading tape")
+            f"Tape is full ({self.tools.convert_size(free)}): I am testing now a few media, writing summary into database and unloading tape")
 
         files = self.database.get_files_by_tapelabel(tape)
         if not self.test_backup_pieces_ltfs(files, self.filecount_from_verify_files_config(files)):
@@ -209,9 +209,9 @@ class Tape:
         ## DELETE all Files, that has been transfered to tape
         time_started = time.time()
         for i in self.database.get_files_by_tapelabel(tape):
-            if os.path.exists("{}/{}".format(self.config['local-enc-dir'], i[1])):
-                logger.info("Deleting encrypted file: {} ({})".format(i[3], i[1]))
-                os.remove("{}/{}".format(self.config['local-enc-dir'], i[1]))
+            if os.path.exists("{}/{}".format(self.config['local-enc-dir'], i[5])):
+                logger.info("Deleting encrypted file: {} ({})".format(i[5], i[1]))
+                os.remove("{}/{}".format(self.config['local-enc-dir'], i[5]))
         logger.debug("Execution Time: Deleted encrypted files written to tape: {} seconds".format(
             time.time() - time_started))
 

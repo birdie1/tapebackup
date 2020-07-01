@@ -156,9 +156,10 @@ class Tapelibrary:
         std_out, std_err = ltfs.communicate()
 
         logger.info("Formating Tape: {}".format(std_out))
-        logger.debug(f"Return code: {ltfs.returncode}")
-        logger.debug(f"std out: {std_out}")
-        logger.debug(f"std err: {std_err}")
+        if ltfs.returncode != 0:
+            logger.debug(f"Return code: {ltfs.returncode}")
+            logger.debug(f"std out: {std_out}")
+            logger.debug(f"std err: {std_err}")
         logger.debug("Execution Time: Make LTFS: {} seconds".format(time.time() - time_started))
 
     def force_mkltfs(self):
