@@ -110,12 +110,12 @@ class Tape:
         try:
             shutil.copy2(f"{self.config['local-enc-dir']}/{filename}", f"{self.config['local-tape-mount-dir']}/")
         except OSError as error:
-            if '[Errno 28]' in error:
+            if '[Errno 28]' in str(error):
                 logger.error("Tapedevice reports full filesystem. I will revert all files marked as written on this tape and force format this device!")
                 logger.error(f"Last reported free size was: {free} ({self.tools.convert_size(free)}), now it shows full!")
                 logger.error("This can have different reasons, including a broken drive head. If you are using HPE drives, you can use the tool 'HPE Library and Tape Tools' to check your drive.")
                 logger.error("If it happens more often, you should consider to activate the '' option in config.yml")
-                logger.error(f"Reverting {self.database.get_files_by_tapelabel(tape)} file entries.")
+                logger.error(f"Reverting {len(self.database.get_files_by_tapelabel(tape))} file entries.")
                 self.database.revert_written_to_tape_by_label(tape)
                 self.tapelibrary.force_mkltfs()
                 logger.error("Revert files and force format device finished. Exiting now!")
@@ -166,7 +166,7 @@ class Tape:
     def tape_is_full_ltfs(self, tape):
         # For LTO-5 and above with LTFS support
         logger.warning(
-            "Tape is full: I am testing now a few media, writing summary into database and unloading tape")
+            f"Tape is fulli ({self.tools.convert_size(free)}): I am testing now a few media, writing summary into database and unloading tape")
 
         files = self.database.get_files_by_tapelabel(tape)
         if not self.test_backup_pieces_ltfs(files, self.filecount_from_verify_files_config(files)):
@@ -272,12 +272,12 @@ class Tape:
             ))
             logger.debug("Execution Time: Getting tape space info: {} seconds".format(time.time() - time_started))
 
-            if "%" in self.config['tape-keep-free']:
+            if "%" in str(self.config['tape-keep-free']):
                 tape_keep_free = int(st.f_bavail * st.f_frsize *
                                      int(self.config['tape-keep-free'][0:self.config['tape-keep-free'].index("%")]) /
                                      100)
             else:
-                tape_keep_free = self.tools.back_convert_size(self.config['tape-keep-free'])
+                tape_keep_free = self.tools.back_convert_size(str(self.config['tape-keep-free']))
             logger.debug(f"Keep {tape_keep_free} ({self.tools.convert_size(tape_keep_free)}) free on tape given by config file!")
 
             files = self.database.get_files_to_be_written()
@@ -287,7 +287,7 @@ class Tape:
 
                 ## Check if enough space on tape, otherwise unmount and use next tape
                 if file[3] > (free - tape_keep_free - 10737418240):
-                    full = self.tape_is_full_ltfs(next_tape)
+                    full = self.tape_is_full_ltfs(next_tape, free)
                     break
                 else:
                     self.write_file_ltfs(file[0], file[1], file[2], file[3], free, next_tape)
