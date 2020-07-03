@@ -8,6 +8,7 @@ import shutil
 
 logger = logging.getLogger()
 
+
 class Tape:
     def __init__(self, config, database, tapelibrary, tools, local=False):
         self.config = config
@@ -166,7 +167,7 @@ class Tape:
     def tape_is_full_ltfs(self, tape, free):
         # For LTO-5 and above with LTFS support
         logger.warning(
-            f"Tape is full ({self.tools.convert_size(free)}): I am testing now a few media, writing summary into database and unloading tape")
+            f"Tape is full ({self.tools.convert_size(free)} left): I am testing now a few media, writing summary into database and unloading tape")
 
         files = self.database.get_files_by_tapelabel(tape)
         if not self.test_backup_pieces_ltfs(files, self.filecount_from_verify_files_config(files)):

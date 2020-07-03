@@ -12,19 +12,39 @@ from lib import Database, Tapelibrary, Tools
 
 pname = "Tapebackup"
 pversion = '0.2'
+logger_format = '[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s'
+log_dir = 'logs'
 debug = False
 
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
 logging.basicConfig(level=logging.DEBUG,
-                    format='[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s',
+                    format=logger_format,
                     datefmt='%Y-%m-%d %H:%M:%S',
-                    filename='main.log')
+                    filename=f"{log_dir}/main.log")
 logger = logging.getLogger()
 
 handler = logging.StreamHandler(sys.stdout)
 handler.setLevel(logging.INFO)
-formatter = logging.Formatter('[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s')
+formatter = logging.Formatter(logger_format)
 handler.setFormatter(formatter)
 logger.addHandler(handler)
+
+
+def change_logger_filehandler(filename):
+    global logger
+    global logger_format
+    global log_dir
+    for hdlr in logger.handlers:
+        if isinstance(hdlr, logging.FileHandler):
+            logger.removeHandler(hdlr)
+
+    filehandler = logging.FileHandler(f"{log_dir}/{filename}")
+    filehandler.setFormatter(
+        logging.Formatter(logger_format)
+    )
+    logger.addHandler(filehandler)
 
 
 def signal_handler(signalo, frame):
@@ -238,7 +258,6 @@ if __name__ == "__main__":
         elif args.command_sub == "init" and os.path.isfile(cfg['database']):
             logger.warning("Database file already exists. Just updating!")
 
-
     database = Database(cfg)
     tapelibrary = Tapelibrary(cfg, database)
     tools = Tools(cfg, database)
@@ -249,21 +268,37 @@ if __name__ == "__main__":
     config_override_from_cmd()
 
     if args.command == "get":
+        logger.info("Starting get operation, logging into logs/get.log")
+        change_logger_filehandler('get.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.files import Files
         current_class = Files(cfg, database, tapelibrary, tools, args.local)
         current_class.get()
 
     elif args.command == "encrypt":
+        logger.info("Starting encrypt operation, logging into logs/encrypt.log")
+        change_logger_filehandler('encrypt.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.encryption import Encryption
         current_class = Encryption(cfg, database, tapelibrary, tools, args.local)
         current_class.encrypt()
 
     elif args.command == "write":
+        logger.info("Starting write operation, logging into logs/write.log")
+        change_logger_filehandler('write.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.tape import Tape
         current_class = Tape(cfg, database, tapelibrary, tools)
         current_class.write()
 
     elif args.command == "verify":
+        logger.info("Starting verify operation, logging into logs/verify.log")
+        change_logger_filehandler('verify.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.verify import Verify
         current_class = Verify(cfg, database, tapelibrary, tools)
         if args.tape is None:
@@ -272,6 +307,10 @@ if __name__ == "__main__":
             current_class.tape(args.tape, args.count)
 
     elif args.command == "restore":
+        logger.info("Starting restore operation, logging into logs/restore.log")
+        change_logger_filehandler('restore.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.restore import Restore
         current_class = Restore(cfg, database, tapelibrary, tools)
 
@@ -343,11 +382,14 @@ if __name__ == "__main__":
             subparser_config.print_help()
 
     elif args.command == "develop":
+        logger.info("Starting develop operation, logging from now on into logs/develop.log")
+        change_logger_filehandler('develop.log')
+        logger.info("########## NEW SESSION ##########")
+        logger.info("Test 123")
         ## For debugging / programming pruspose only
         from functions.develop import Develop
 
         current_class = Develop(cfg, database, tapelibrary, tools)
         current_class.current_test()
-
     else:
         parser.print_help()
