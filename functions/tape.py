@@ -355,3 +355,6 @@ class Tape:
 
         if full:
             self.write()
+
+        # Unmounting current tape if interrupted or no more data to write
+        self.tapelibrary.unmount()
