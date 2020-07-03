@@ -33,9 +33,6 @@ logger.addHandler(handler)
 
 
 def change_logger_filehandler(filename):
-    global logger
-    global logger_format
-    global log_dir
     for hdlr in logger.handlers:
         if isinstance(hdlr, logging.FileHandler):
             logger.removeHandler(hdlr)
@@ -203,6 +200,11 @@ if __name__ == "__main__":
     subparser_files_sub.add_parser('duplicate', help='Show duplicate files')
     subparser_files_sub.add_parser('summary', help='Show summary about files')
 
+    subparser_log = subparsers.add_parser('log', help='Log operations')
+    subparser_log_sub = subparser_log.add_subparsers(title='Subcommands', dest='command_sub')
+    subparser_log_sub.add_parser('rotate', help='Rotate log files (Only files > 10MB)')
+    subparser_log_sub.add_parser('remove_debug', help='Remove debug output from non rotated log files (This will shorten the log)')
+
     subparser_db = subparsers.add_parser('db', help='Database operations')
     subsubparser_db = subparser_db.add_subparsers(title='Subcommands', dest='command_sub')
     subsubparser_db.add_parser('init', help='Initialize SQLite DB')
@@ -345,6 +347,15 @@ if __name__ == "__main__":
         elif args.command_sub is None:
             subparser_files.print_help()
 
+    elif args.command == "log":
+        from functions.log import Log
+        current_class = Log(cfg)
+
+        if args.command_sub == "rotate":
+            current_class.rotate(log_dir, logger_format)
+        elif args.command_sub == "remove_debug":
+            current_class.remove_debug(log_dir)
+
     elif args.command == "tape":
         from functions.tape import Tape
         current_class = Tape(cfg, database, tapelibrary, tools)
@@ -387,9 +398,9 @@ if __name__ == "__main__":
         logger.info("########## NEW SESSION ##########")
         logger.info("Test 123")
         ## For debugging / programming pruspose only
-        from functions.develop import Develop
+        #from functions.develop import Develop
 
-        current_class = Develop(cfg, database, tapelibrary, tools)
-        current_class.current_test()
+        #current_class = Develop(cfg, database, tapelibrary, tools)
+        #current_class.current_test()
     else:
         parser.print_help()
