@@ -168,7 +168,7 @@ class Tapelibrary:
             self.unmount()
 
         # Add sleep to prevent tapedrive from being locked
-        time.sleep(20)
+        time.sleep(60)
 
         time_started = time.time()
         commands = ['mkltfs', '-f', '-d', self.config['devices']['tapedrive'], '--no-compression']
@@ -179,6 +179,7 @@ class Tapelibrary:
             logger.debug(f"Return code: {ltfs.returncode}")
             logger.debug(f"std out: {std_out}")
             logger.debug(f"std err: {std_err}")
+            logger.error("Formatting tape failed, you need to manually format this tape before next usage!")
         logger.debug("Execution Time: Force making LTFS: {} seconds".format(time.time() - time_started))
 
     def mount_ltfs(self):
