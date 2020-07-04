@@ -209,10 +209,13 @@ class Tape:
 
         ## DELETE all Files, that has been transfered to tape
         time_started = time.time()
-        for i in self.database.get_files_by_tapelabel(tape):
+        count = 1
+        to_delete = self.database.get_files_by_tapelabel(tape)
+        for i in to_delete:
             if os.path.exists("{}/{}".format(self.config['local-enc-dir'], i[5])):
-                logger.info("Deleting encrypted file: {} ({})".format(i[5], i[1]))
+                logger.info(f"Deleting encrypted file ({count}/{len(to_delete)}): {i[5]} ({i[1]})")
                 os.remove("{}/{}".format(self.config['local-enc-dir'], i[5]))
+            count += 1
         logger.debug("Execution Time: Deleted encrypted files written to tape: {} seconds".format(
             time.time() - time_started))
 
