@@ -158,3 +158,21 @@ class Tools:
             start_and_files.append((start, file))
 
         return [y for x,y in sorted(start_and_files, key=lambda i: i[0])]
+
+    @staticmethod
+    def count_files_fit_on_tape(filelist, free_space):
+        """
+        Get a count of files that will be written to tape
+        :param filelist: list of files that could be written to tape
+        :param free_space: current free space minus preserved on target tape
+        :return: Integer: count of files
+        """
+        cur_space = 0
+        count = 0
+        for file in filelist:
+            if (cur_space + file[3]) < free_space:
+                cur_space += file[3]
+                count += 1
+            else:
+                return count
+        return count

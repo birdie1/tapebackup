@@ -103,10 +103,10 @@ class Tape:
                 break
         return True
 
-    def write_file_ltfs(self, id, filename, orig_filename, filesize, free, tape):
+    def write_file_ltfs(self, id, filename, orig_filename, filesize, free, tape, count, filecount):
         logger.debug(f"Tape: Free: {free}, Fileid: {id}, Filesize: {filesize}")
 
-        logger.info(f"Writing file to tape: {orig_filename}")
+        logger.info(f"Writing file to tape ({count}/{filecount}): {orig_filename}")
         time_started = time.time()
         try:
             shutil.copy2(f"{self.config['local-enc-dir']}/{filename}", f"{self.config['local-tape-mount-dir']}/")
@@ -285,6 +285,8 @@ class Tape:
             logger.debug(f"Keep {tape_keep_free} ({self.tools.convert_size(tape_keep_free)}) free on tape given by config file!")
 
             files = self.database.get_files_to_be_written()
+            filecount = self.tools.count_files_fit_on_tape(files, ((st.f_bavail * st.f_frsize) - tape_keep_free - 10737418240))
+            count = 1
             for file in files:
                 st = os.statvfs(self.config['local-tape-mount-dir'])
                 free = (st.f_bavail * st.f_frsize)
@@ -294,7 +296,8 @@ class Tape:
                     full = self.tape_is_full_ltfs(next_tape, free)
                     break
                 else:
-                    self.write_file_ltfs(file[0], file[1], file[2], file[3], free, next_tape)
+                    self.write_file_ltfs(file[0], file[1], file[2], file[3], free, next_tape, count, filecount)
+                    count += 1
 
                 if self.interrupted:
                     break
@@ -358,6 +361,9 @@ class Tape:
 
         if full:
             self.write()
+
+        # Info some stats, especially interesting when written is manual interrupted
+        logger.info(f"Written {count} of {filecount} files. {self.tools.convert_size(st.f_bavail * st.f_frsize)} space still avalable on tape.")
 
         # Unmounting current tape if interrupted or no more data to write
         self.tapelibrary.unmount()
