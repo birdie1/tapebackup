@@ -359,11 +359,12 @@ class Tape:
             if len(files_for_next_chunk) > 0:
                 self.write_file_tar(files_for_next_chunk, free, next_tape)
 
+        # Info some stats, especially interesting when written is manual interrupted
+        logger.info(
+            f"Written {count} of {filecount} files. {self.tools.convert_size(st.f_bavail * st.f_frsize)} space still avalable on tape.")
+
         if full:
             self.write()
-
-        # Info some stats, especially interesting when written is manual interrupted
-        logger.info(f"Written {count} of {filecount} files. {self.tools.convert_size(st.f_bavail * st.f_frsize)} space still avalable on tape.")
 
         # Unmounting current tape if interrupted or no more data to write
         self.tapelibrary.unmount()
