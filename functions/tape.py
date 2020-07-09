@@ -277,7 +277,7 @@ class Tape:
             logger.debug("Execution Time: Getting tape space info: {} seconds".format(time.time() - time_started))
 
             if "%" in str(self.config['tape-keep-free']):
-                tape_keep_free = int(st.f_bavail * st.f_frsize *
+                tape_keep_free = int(st.f_blocks * st.f_frsize *
                                      int(self.config['tape-keep-free'][0:self.config['tape-keep-free'].index("%")]) /
                                      100)
             else:
