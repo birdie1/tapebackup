@@ -9,9 +9,9 @@ logger = logging.getLogger()
 
 
 class Tapelibrary:
-    def __init__(self, config, database):
+    def __init__(self, config):
         self.config = config
-        self.database = database
+        #self.database = database
 
     def get_tapes_tags_from_library(self):
         time_started = time.time()

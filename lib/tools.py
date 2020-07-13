@@ -16,9 +16,9 @@ from pathlib import Path
 logger = logging.getLogger()
 
 class Tools:
-    def __init__(self, config, database):
+    def __init__(self, config, ):
         self.config = config
-        self.database = database
+        #self.database = database
         self.alphabet = string.ascii_letters + string.digits
 
     @staticmethod
@@ -94,7 +94,7 @@ class Tools:
         return total
 
     def calculate_over_max_storage_usage(self, new_file_size):
-        if self.config['max_storage_usage'] == '' or self.config['max_storage_usage'] == None:
+        if self.config['max_storage_usage'] == '' or self.config['max_storage_usage'] is None:
             return False
         current_size = self.folder_size(self.config['local-data-dir']) \
                        + self.folder_size(self.config['local-enc-dir']) \

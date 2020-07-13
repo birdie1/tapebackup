@@ -81,7 +81,7 @@ class Encryption:
 
             for file in files:
                 file_count_current += 1
-                for i in range(0, self.config['threads']):
+                for i in range(0, self.config['threads']['encrypt']):
                     if i not in self.active_threads:
                         next_thread = i
                         break
@@ -101,7 +101,7 @@ class Encryption:
                                      daemon=True)
                 x.start()
 
-                while threading.active_count() > self.config['threads']:
+                while threading.active_count() > self.config['threads']['encrypt']:
                     time.sleep(0.2)
 
                 if self.interrupted:

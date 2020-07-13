@@ -2,123 +2,215 @@ import sqlite3
 import logging
 import sys
 import time
-
+from sqlalchemy import create_engine
+from sqlalchemy.ext.serializer import dumps
+from sqlalchemy.orm import sessionmaker
+from lib.models import File, Tape, RestoreJob, RestoreJobFileMap
 from sqlite3 import Error
 
 logger = logging.getLogger()
 
 
+def connect(db):
+    engine = create_engine(f"sqlite:///{db}")
+
+    # Add table to database if not exist
+    File.__table__.create(bind=engine, checkfirst=True)
+    Tape.__table__.create(bind=engine, checkfirst=True)
+    RestoreJob.__table__.create(bind=engine, checkfirst=True)
+    RestoreJobFileMap.__table__.create(bind=engine, checkfirst=True)
+
+    return engine
+
+
+def create_session(engine):
+    session = sessionmaker(bind=engine)
+    return session()
+
+
+def file_exists_by_path(session, relative_path):
+    """
+    Check if filename known in database
+    :param session: orm session
+    :param relative_path: relative file path
+    :return: Boolean if found
+    """
+    return session.query(File).filter(File.path == relative_path).first()
+
+
+def insert_file(session, filename, relative_path):
+    """
+    Create a new file entry
+    :param session: orm session
+    :param filename: file name
+    :param relative_path: relative file path
+    :return: inserted file id
+    """
+    file = File(filename=filename, path=relative_path)
+    session.add(file)
+    session.commit()
+    return file
+
+
+def get_file_by_md5(session, md5):
+    return session.query(File).filter(File.md5sum_file == md5).first()
+
+
+def update_file_after_download(session, file, filesize, mtime, downloaded_date, md5):
+    """
+    Update file object after download
+    :param session: orm session
+    :param file: file object
+    :param filesize:
+    :param mtime:
+    :param downloaded_date:
+    :param md5:
+    :return:
+    """
+    file.filesize = filesize
+    file.mtime = mtime
+    file.downloaded_date = downloaded_date
+    file.md5sum_file = md5
+    file.downloaded = True
+    session.commit()
+
+
+def update_duplicate_file_after_download(session, file, duplicate_file, mtime, downloaded_date):
+    """
+    Add an alternative file if file already exists(by md5sum)
+    :param session: orm session
+    :param file: file object
+    :param duplicate_file: file object of duplicate file with same md5sum
+    :param mtime: mtime of file
+    :param downloaded_date: downlodaded date of alternative file
+    :return: file object
+    """
+    file.duplicate_id = duplicate_file.id
+    file.mtime = mtime
+    file.downloaded_date = downloaded_date
+    session.commit()
+    return file
+
+
+def delete_broken_file(session, file):
+    session.delete(file)
+    session.commit()
+
+def get_all_files(self):
+    return self.session.query(File).all()
+
+
+def get_tables(session):
+    rows = session.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    return [table[0] for table in rows]
+
+
+def total_rows(session, table_name, print_out=False):
+    """ Returns the total number of rows in the database """
+    count = session.execute(f'SELECT COUNT(*) FROM {table_name}').fetchone()
+    if print_out:
+        print('Total rows: {}'.format(count[0]))
+    return count[0]
+
+
+def table_col_info(session, table_name, print_out=False):
+    """ Returns a list of tuples with column informations:
+    (id, name, type, notnull, default_value, primary_key)
+    """
+    info = session.execute(f'PRAGMA TABLE_INFO({table_name})').fetchall()
+
+    if print_out:
+        print("Column Info:\n    ID, Name, Type, NotNull, DefaultVal, PrimaryKey")
+        for col in info:
+            print(f"    {col}")
+    return info
+
+
+def values_in_col(session, table_name, print_out=True):
+    """ Returns a dictionary with columns as keys
+    and the number of not-null entries as associated values.
+    """
+    info = session.execute('PRAGMA TABLE_INFO({})'.format(table_name)).fetchall()
+    col_dict = dict()
+    for col in info:
+        col_dict[col[1]] = 0
+    for col in col_dict:
+        number_rows = len(session.execute(f'SELECT ({col}) FROM {table_name} \
+                              WHERE {col} IS NOT NULL').fetchall())
+        # In my case this approach resulted in a
+        # better performance than using COUNT
+        col_dict[col] = number_rows
+    if print_out:
+        print("Number of entries per column:")
+        for i in col_dict.items():
+            print(f'    {i[0]}: {i[1]}')
+    return col_dict
+
+
+def get_broken_db_download_entry(session):
+    return session.query(File).filter(File.duplicate_id.is_(None), File.downloaded.is_(False)).all()
+
+
+def get_broken_db_encrypt_entry(session):
+    return session.query(File).filter(File.filename_encrypted.isnot(None), File.encrypted.is_(False)).all()
+
+
+def update_broken_db_encrypt_entry(session, file):
+    file.filename_encrypted = None
+    session.commit()
+
+
+def get_files_to_be_written(session):
+    return session.query(File).filter(
+        File.downloaded.is_(True),
+        File.encrypted.is_(True),
+        File.written.is_(False)
+    ).all()
+
+    # TODO: Remove this old style after everything is in sqlalchemy style
+    #sql = '''SELECT id,
+    #                 filename_encrypted,
+    #                 filename,
+    #                 encrypted_filesize
+    #         FROM files
+    #         WHERE downloaded = 1
+    #         AND encrypted = 1
+    #         AND written = 0'''
+
+
+def get_not_deleted_files(session):
+    return session.query(File).filter(File.deleted.is_(False)).all()
+
+
+def set_file_deleted(session, file):
+    file.deleted = True
+    session.commit()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 class Database:
-    def __init__(self, config):
-        self.config = config
-        self.conn = self.create_connection(config['database'])
-        self.cursor = self.conn.cursor()
 
-    def create_tables(self):
-        sql_files = '''CREATE TABLE IF NOT EXISTS files (
-                    id INTEGER PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    path TEXT NOT NULL UNIQUE,
-                    filename_encrypted TEXT UNIQUE,
-                    mtime TEXT,
-                    filesize INT,
-                    encrypted_filesize INT,
-                    md5sum_file TEXT,
-                    md5sum_encrypted TEXT,
-                    tape TEXT,
-                    downloaded_date TEXT,
-                    encrypted_date TEXT,
-                    written_date TEXT,
-                    tapeposition INT,
-                    downloaded INT DEFAULT 0,
-                    encrypted INT DEFAULT 0,
-                    written INT DEFAULT 0,
-                    verified_count INT DEFAULT 0,
-                    verified_last TEXT,
-                    deleted INT DEFAULT 0
-                    );'''
 
-        sql_tapedevice = '''CREATE TABLE IF NOT EXISTS tapedevices (
-                    id INTEGER PRIMARY KEY,
-                    label TEXT NOT NULL UNIQUE,
-                    full_date TEXT,
-                    files_count INT DEFAULT 0,
-                    end_of_data INT,
-                    full INT DEFAULT 0,
-                    verified_count INT DEFAULT 0,
-                    verified_last TEXT
-                    );'''
 
-        sql_alternative_file_names = '''CREATE TABLE IF NOT EXISTS alternative_file_names (
-                    id INTEGER PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    path TEXT NOT NULL UNIQUE,
-                    mtime TEXT,
-                    files_id INT NOT NULL,
-                    date TEXT ,
-                    deleted INT DEFAULT 0
-                    );'''
 
-        sql_updates_files = '''CREATE TABLE IF NOT EXISTS updated_files (
-                    id INTEGER PRIMARY KEY,
-                    files_id INT NOT NULL,
-                    filename TEXT NOT NULL,
-                    path TEXT NOT NULL,
-                    filename_encrypted TEXT UNIQUE,
-                    mtime TEXT,
-                    filesize INT,
-                    encrypted_filesize INT,
-                    md5sum_file TEXT,
-                    md5sum_encrypted TEXT,
-                    tape TEXT,
-                    downloaded_date TEXT,
-                    encrypted_date TEXT,
-                    written_date TEXT,
-                    downloaded INT DEFAULT 0,
-                    encrypted INT DEFAULT 0,
-                    written INT DEFAULT 0,
-                    verified_count INT DEFAULT 0,
-                    verified_last TEXT,
-                    deleted INT DEFAULT 0
-                    );'''
-
-        sql_restore_job = '''CREATE TABLE IF NOT EXISTS restore_job (
-                    id INTEGER PRIMARY KEY,
-                    startdate TEXT NOT NULL,
-                    finished TEXT DEFAULT NULL
-                    );'''
-
-        sql_restore_job_files = '''CREATE TABLE IF NOT EXISTS restore_job_files_map (
-                    id INTEGER PRIMARY KEY,
-                    restored INT DEFAULT 0,
-                    files_id INTEGER NOT NULL,
-                    restore_job_id INTEGER NOT NULL,
-                    FOREIGN KEY (files_id) REFERENCES files (id),
-                    FOREIGN KEY (restore_job_id) REFERENCES restore_job (id) ON DELETE CASCADE,
-                    UNIQUE (files_id, restore_job_id)
-                    );'''
-
-        try:
-            self.cursor.execute(sql_files)
-            self.cursor.execute(sql_tapedevice)
-            self.cursor.execute(sql_alternative_file_names)
-            self.cursor.execute(sql_updates_files)
-            self.cursor.execute(sql_restore_job)
-            self.cursor.execute(sql_restore_job_files)
-        except Error as e:
-            logger.error("Create tables failed:".format(e))
-            return False
-        return True
-
-    def create_connection(self, db_file):
-        conn = None
-        try:
-            conn = sqlite3.connect(db_file)
-        except Error as e:
-            print(e)
-
-        return conn
+    # TODO: Need Rework
+    #def export(self, filename):
+    #    with open(filename, 'w') as f:
+    #        #for line in self.conn.iterdump():
+    #        #    f.write('{}\n'.format(line))
 
     def fetchall_from_database(self, sql, data=()):
         try_count = 0
@@ -170,142 +262,10 @@ class Database:
                     time.sleep(10)
         return True
 
-    def export(self, filename):
-        with open(filename, 'w') as f:
-            for line in self.conn.iterdump():
-                f.write('{}\n'.format(line))
 
-    def get_tables(self):
-        self.cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        rows = self.cursor.fetchall()
-        tables = []
-        for table in rows:
-            tables.append(table[0])
-        return tables
 
-    def total_rows(self, table_name, print_out=False):
-        """ Returns the total number of rows in the database """
-        self.cursor.execute('SELECT COUNT(*) FROM {}'.format(table_name))
-        count = self.cursor.fetchall()
-        if print_out:
-            print('\nTotal rows: {}'.format(count[0][0]))
-        return count[0][0]
 
-    def table_col_info(self, table_name, print_out=False):
-        """ Returns a list of tuples with column informations:
-        (id, name, type, notnull, default_value, primary_key)
-        """
-        self.cursor.execute('PRAGMA TABLE_INFO({})'.format(table_name))
-        info = self.cursor.fetchall()
 
-        if print_out:
-            print("\nColumn Info:\nID, Name, Type, NotNull, DefaultVal, PrimaryKey")
-            for col in info:
-                print(col)
-        return info
-
-    def values_in_col(self, table_name, print_out=True):
-        """ Returns a dictionary with columns as keys
-        and the number of not-null entries as associated values.
-        """
-        self.cursor.execute('PRAGMA TABLE_INFO({})'.format(table_name))
-        info = self.cursor.fetchall()
-        col_dict = dict()
-        for col in info:
-            col_dict[col[1]] = 0
-        for col in col_dict:
-            self.cursor.execute(f'SELECT ({col}) FROM {table_name} \
-                                  WHERE {col} IS NOT NULL')
-            # In my case this approach resulted in a
-            # better performance than using COUNT
-            number_rows = len(self.cursor.fetchall())
-            col_dict[col] = number_rows
-        if print_out:
-            print("\nNumber of entries per column:")
-            for i in col_dict.items():
-                print(f'{i[0]}: {i[1]}')
-        return col_dict
-
-    def get_broken_db_download_entry(self):
-        sql = '''SELECT id, path FROM files
-                 WHERE downloaded = 0'''
-        return self.fetchall_from_database(sql)
-
-    def delete_broken_db_entry(self, id):
-        sql = '''DELETE from files
-                 WHERE id = ?'''
-        self.change_entry_in_database(sql, (id,))
-
-    def get_broken_db_encrypt_entry(self):
-        sql = '''SELECT id, filename_encrypted FROM files
-                 WHERE filename_encrypted IS NOT NULL
-                 AND encrypted = 0'''
-        return self.fetchall_from_database(sql)
-
-    def get_all_files(self):
-        sql = 'SELECT * FROM files'
-        return self.fetchall_from_database(sql)
-
-    def fix_float_timestamps(self, id, new_timestamp):
-        sql = 'UPDATE files SET mtime = ? WHERE id = ?'
-        return self.change_entry_in_database(sql, (new_timestamp, id))
-
-    def update_broken_db_encrypt_entry(self, id):
-        sql = '''UPDATE files
-                 SET filename_encrypted = NULL
-                 WHERE id = ?'''
-        self.change_entry_in_database(sql, (id,))
-
-    def check_if_file_exists_by_path(self, relpath):
-        """
-        Check if filename known in database
-        :param relpath:
-        :param filename:
-        :return: inserted file id
-        """
-        rows_files = self.fetchall_from_database(
-            'SELECT * FROM files WHERE path = ?',
-            (relpath,)
-        )
-        rows_alt_files = self.fetchall_from_database(
-            'SELECT * FROM alternative_file_names WHERE path = ?',
-            (relpath,)
-        )
-
-        if len(rows_files) == 0 and len(rows_alt_files) == 0:
-            return False
-        else:
-            return True
-
-    def insert_file(self, filename, relpath):
-        """
-        Create a new file entry
-        :param file:
-        :return: inserted file id
-        """
-        sql = '''INSERT INTO files (filename,path)
-                 VALUES (?,?)'''
-        return self.change_entry_in_database(sql, (filename, relpath))
-
-    def get_files_by_md5(self, md5):
-        sql = '''SELECT id FROM files
-                 WHERE md5sum_file = ?'''
-        return self.fetchall_from_database(sql, (md5,))
-
-    def insert_alternative_file_names(self, filename, path, duplicate_id, downloaded_date):
-        sql = '''INSERT INTO alternative_file_names (filename,path,files_id,date)
-                 VALUES (?,?,?,?)'''
-        return self.change_entry_in_database(sql, (filename, path, duplicate_id, downloaded_date))
-
-    def update_file_after_download(self, filesize, mtime, downloaded_date, md5, downloaded, id):
-        sql = '''UPDATE files
-                 SET filesize = ?,
-                     mtime = ?,
-                     downloaded_date = ?,
-                     md5sum_file = ?,
-                     downloaded = ?
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (filesize, mtime, downloaded_date, md5, downloaded, id))
 
     def get_files_to_be_encrypted(self):
         sql = '''SELECT id, filename, path FROM files
@@ -350,16 +310,7 @@ class Database:
                  VALUES (?)'''
         return self.change_entry_in_database(sql, (label,))
 
-    def get_files_to_be_written(self):
-        sql = '''SELECT id,
-                         filename_encrypted,
-                         filename,
-                         encrypted_filesize
-                 FROM files
-                 WHERE downloaded = 1
-                 AND encrypted = 1
-                 AND written = 0'''
-        return self.fetchall_from_database(sql)
+
 
     def get_filecount_by_tapelabel(self, label):
         sql = '''SELECT count(*) FROM files
@@ -428,22 +379,6 @@ class Database:
                  WHERE tape NOT NULL
                  AND verified_count = ?'''
         return self.fetchall_from_database(sql, (verified_count,))
-
-    def get_not_deleted_files(self):
-        sql = '''SELECT id, path FROM files
-                 WHERE deleted != 1'''
-        return self.fetchall_from_database(sql)
-
-    def get_not_deleted_alternative_files(self):
-        sql = '''SELECT id, path FROM alternative_file_names
-                 WHERE deleted != 1'''
-        return self.fetchall_from_database(sql)
-
-    def set_file_deleted(self, fileid):
-        sql = '''UPDATE files
-                 SET deleted = 1
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (fileid,))
 
     def set_file_alternative_deleted(self, fileid):
         sql = '''UPDATE alternative_file_names

@@ -284,7 +284,7 @@ class Tape:
                 tape_keep_free = self.tools.back_convert_size(str(self.config['tape-keep-free']))
             logger.debug(f"Keep {tape_keep_free} ({self.tools.convert_size(tape_keep_free)}) free on tape given by config file!")
 
-            files = self.database.get_files_to_be_written()
+            files = self.database.get_files_to_be_written() # TODO: Caution new sqlalchemy style
             filecount = self.tools.count_files_fit_on_tape(files, ((st.f_bavail * st.f_frsize) - tape_keep_free - 10737418240))
             count = 1
             for file in files:
@@ -292,7 +292,7 @@ class Tape:
                 free = (st.f_bavail * st.f_frsize)
 
                 ## Check if enough space on tape, otherwise unmount and use next tape
-                if file[3] > (free - tape_keep_free - 10737418240):
+                if file[3] > (free - tape_keep_free):
                     full = self.tape_is_full_ltfs(next_tape, free)
                     break
                 else:
@@ -329,13 +329,13 @@ class Tape:
             # usage by many small file. Because of the 65kB blocksize it could waste a lot of space.
             files_for_next_chunk = []
             files_next_chunk_size = 0
-            files = self.database.get_files_to_be_written()
+            files = self.database.get_files_to_be_written() # TODO: Caution new sqlalchemy style
             for file in files:
                 free = self.tapelibrary.get_free_tapespace_lto4()
                 ## Check if enough space on tape, otherwise unmount and use next tape
                 ## The 1gb maximum chunk size doesn't matter here, because were have 10gb buffer, but if the file is
                 ## bigger than buffer and bigger than free space, it must be processed as full tape
-                if file[3] >= (free - 10737418240) or (files_next_chunk_size + file[3]) >= (free - 10737418240):
+                if file[3] >= (free - tape_keep_free) or (files_next_chunk_size + file[3]) >= (free - tape_keep_free):
                     if len(files_for_next_chunk) > 0:
                         self.write_file_tar(files_for_next_chunk, free, next_tape)
                         files_for_next_chunk.append(file)

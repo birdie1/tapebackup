@@ -9,8 +9,9 @@ If you want to backup different "projects" with the same library, either clone t
 
 #### Help
 <pre>
-user@server ~ (git)-[master] # ./main.py --help     
-usage: main.py [-h] [-v] [--debug] [--info] [--quiet] [--local] [-c CONFIG] [-D DATABASE] [-s SERVER] [-d DATA_DIR] [-l TAPELIB] [-t TAPEDRIVE] [-m TAPE_MOUNT] {get,encrypt,write,verify,restore,files,db,tape,config,debug} ...
+user@server ~ (git)-[master] # ./main.py --help
+usage: main.py [-h] [-v] [--debug] [--info] [--quiet] [--local] [-c CONFIG] [-D DATABASE] [-s SERVER] [-d DATA_DIR] [-l TAPELIB] [-t TAPEDRIVE] [-m TAPE_MOUNT]
+               {get,encrypt,write,verify,restore,files,log,db,tape,config,debug,develop} ...
 
 Tape backup from remote or local server to tape library
 
@@ -39,22 +40,24 @@ optional arguments:
                         Specify 'tape mount directory' [Default: Read from config file]
 
 Commands:
-  {get,encrypt,write,verify,restore,files,db,tape,config,debug}
+  {get,encrypt,write,verify,restore,files,log,db,tape,config,debug,develop}
     get                 Get Files from remote Server
     encrypt             Enrypt files and build directory for one tape media size
     write               Write directory into
     verify              Verify Files (random or given filename) on Tape
     restore             Restore File from Tape
     files               File operations
+    log                 Log operations
     db                  Database operations
     tape                Tapelibrary operations
     config              Configuration operations
     debug               Print debug information
+    develop             Generic function for developing new stuff
 </pre>
 
 ## Gettings started
 ### Prerequisites
-It is written in Python 3. Install necessary tape software via distribution package manager. Install Python modules via pip.
+It is written in Python 3. Install necessary tape software via distribution package manager. Install Python modules via pip, you may want to use venv.
 
 Python modules:
 - pyyaml
@@ -138,14 +141,14 @@ There are many more function around database or verifying files. Use `./main.py 
 
 ## Tested with following Devices / OS
 - Arch Linux
-- TANDBERG StorageLoader with HP Ultrium 5-SCSI Drive
+- TANDBERG StorageLoader with 1x HP Ultrium 5-SCSI Drive
+- TANDBERG Tape Library T40 with 1x HP Ultrium 6-Fibrechannel Drive
 
 ## Known limitations
 - Tapelibraries with more than 1 drive possibly not working (I have no media to test with)
 - Verify backup by md5sum not yet implemented
-- Restoring files automaticaly from tapes not yet implemented
 
-## Howto test tapelib from linux
+## Howto test tapelibrary from linux
 ### List Tape Devices
 ```
 root@wuerfel /home/jonas # lsscsi --generic
