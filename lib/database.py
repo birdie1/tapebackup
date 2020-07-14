@@ -2,7 +2,7 @@ import sqlite3
 import logging
 import sys
 import time
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 from sqlalchemy.ext.serializer import dumps
 from sqlalchemy.orm import sessionmaker
 from lib.models import File, Tape, RestoreJob, RestoreJobFileMap
@@ -96,6 +96,7 @@ def delete_broken_file(session, file):
     session.delete(file)
     session.commit()
 
+
 def get_all_files(self):
     return self.session.query(File).all()
 
@@ -187,6 +188,103 @@ def set_file_deleted(session, file):
     session.commit()
 
 
+def get_file_count(session):
+    return session.query(File.id).count()
+
+
+def get_min_file_size(session):
+    return session.query(func.min(File.filesize)).first()[0]
+
+
+def get_max_file_size(session):
+    return session.query(func.max(File.filesize)).first()[0]
+
+
+def get_total_file_size(session):
+    return session.query(func.sum(File.filesize)).first()[0]
+
+
+def list_duplicates(session):
+    return session.query(File).filter(File.duplicate_id.isnot(None)).all()
+
+
+def get_files_to_be_encrypted(session):
+    return session.query(File).filter(File.downloaded.is_(True), File.encrypted.is_(False)).all()
+
+
+def filename_encrypted_already_used(session, filename_encrypted):
+    if len(session.query(File).filter(File.filename_encrypted == filename_encrypted).all()) > 0:
+        return True
+    else:
+        return False
+
+
+def update_filename_enc(session, id, filename_enc):
+    file = session.query(File).filter(File.id == id).first()
+    file.filename_encrypted = filename_enc
+    session.commit()
+    return file
+
+
+def update_file_after_encrypt(session, file, filesize, encrypted_date, md5sum_encrypted):
+    file.encrypted_filesize = filesize
+    file.encrypted_date = encrypted_date
+    file.md5sum_encrypted = md5sum_encrypted
+    file.encrypted = True
+    session.commit()
+
+
+
+
+
+
+
+# TODO from here files.py already changed
+def get_files_like(session, likes=[], tape=None, written=False):
+    if len(likes):
+        where_files = ' or '.join([file_compare] * len(files))
+    else:
+        where_files = 'true'
+
+def get_files_like_old(self, likes=[], tape=None, items=[], written=False):
+    return self.get_files_by_path(likes, tape, items, file_compare='path like ?', written=written)
+
+
+def get_files_by_path_old(self, files=[], tape=None, items=[], file_compare='path = ?', written=False):
+    if files:
+        where_files = ' or '.join([file_compare] * len(files))
+    else:
+        where_files = 'true'
+
+    if items:
+        items_sql = ','.join(items)
+    else:
+        items_sql = '*'
+
+    sql = f'SELECT {items_sql} FROM files WHERE ({where_files})'
+
+    if tape is not None:
+        sql += ' AND tape = ?'
+        files += [tape]
+
+    if written:
+        sql += ' AND written=1'
+
+    return self.fetchall_from_database(sql, files)
+
+# TODO till here files.py already changed
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -267,26 +365,11 @@ class Database:
 
 
 
-    def get_files_to_be_encrypted(self):
-        sql = '''SELECT id, filename, path FROM files
-                 WHERE downloaded = 1
-                 AND encrypted = 0'''
-        return self.fetchall_from_database(sql)
 
-    def update_filename_enc(self, filename_enc, id):
-        sql = '''UPDATE files
-                 SET filename_encrypted = ?
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (filename_enc, id,))
 
-    def update_file_after_encrypt(self, filesize, encrypted_date, md5sum_encrypted, id):
-        sql = '''UPDATE files
-                 SET encrypted_filesize = ?,
-                     encrypted_date = ?,
-                     md5sum_encrypted = ?,
-                     encrypted = 1
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (filesize, encrypted_date, md5sum_encrypted, id))
+
+
+
 
     def get_full_tape(self, label):
         sql = '''SELECT id, label, full FROM tapedevices
@@ -348,22 +431,7 @@ class Database:
                  WHERE id = ?'''
         return self.change_entry_in_database(sql, (dt, label, tape_position, did))
 
-    def list_duplicates(self):
-        sql = '''SELECT files.path,
-                        files.mtime,
-                        alternative_file_names.path,
-                        files.filesize
-                 FROM files, alternative_file_names
-                 WHERE files.id = alternative_file_names.files_id'''
-        return self.fetchall_from_database(sql)
 
-    def filename_encrypted_already_used(self, filename_encrypted):
-        sql = '''SELECT id FROM files
-                 WHERE filename_encrypted = ?'''
-        if len(self.fetchall_from_database(sql, (filename_encrypted,))) > 0:
-            return True
-        else:
-            return False
 
     def dump_filenames_to_for_tapes(self, label):
         sql = '''SELECT id, path, filename_encrypted FROM files
@@ -385,24 +453,6 @@ class Database:
                  SET deleted = 1
                  WHERE id = ?'''
         return self.change_entry_in_database(sql, (fileid,))
-
-    def get_file_count(self):
-        sql = '''SELECT (SELECT count(*) FROM files WHERE deleted != 1)
-                 + (SELECT count(*) FROM alternative_file_names WHERE deleted != 1)
-                 AS total_rows'''
-        return self.fetchall_from_database(sql)[0][0]
-
-    def get_min_file_size(self):
-        sql = '''SELECT MIN(filesize) FROM files WHERE deleted != 1'''
-        return self.fetchall_from_database(sql)[0][0]
-
-    def get_max_file_size(self):
-        sql = '''SELECT MAX(filesize) FROM files WHERE deleted != 1'''
-        return self.fetchall_from_database(sql)[0][0]
-
-    def get_total_file_size(self):
-        sql = '''SELECT SUM(filesize) FROM files WHERE deleted != 1'''
-        return self.fetchall_from_database(sql)[0][0]
 
     def get_end_of_data_by_tape(self, tag):
         sql = '''SELECT end_of_data from tapedevices WHERE label = ?'''
@@ -504,31 +554,6 @@ class Database:
                   WHERE restore_job_id = ? AND ({tape_sql}) {restored_sql}'''
 
         return self.fetchall_from_database(sql, args)
-
-    def get_files_like(self, likes=[], tape=None, items=[], written=False):
-        return self.get_files_by_path(likes, tape, items, file_compare='path like ?', written=written)
-
-    def get_files_by_path(self, files=[], tape=None, items=[], file_compare='path = ?', written=False):
-        if files:
-            where_files = ' or '.join([file_compare] * len(files))
-        else:
-            where_files = 'true'
-
-        if items:
-            items_sql = ','.join(items)
-        else:
-            items_sql = '*'
-
-        sql = f'SELECT {items_sql} FROM files WHERE ({where_files})'
-
-        if tape is not None:
-            sql += ' AND tape = ?'
-            files += [tape]
-
-        if written:
-            sql += ' AND written=1'
-
-        return self.fetchall_from_database(sql, files)
 
     def set_file_restored(self, restore_id, file_id):
         sql = '''UPDATE restore_job_files_map

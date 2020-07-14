@@ -282,7 +282,7 @@ if __name__ == "__main__":
         logger.info("########## NEW SESSION ##########")
 
         from functions.encryption import Encryption
-        current_class = Encryption(cfg, database, tapelibrary, tools, args.local)
+        current_class = Encryption(cfg, db_engine, tapelibrary, tools, args.local)
         current_class.encrypt()
 
     elif args.command == "write":

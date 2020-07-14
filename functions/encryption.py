@@ -1,19 +1,21 @@
 import logging
+import datetime
 import subprocess
 import os
 import sys
 import time
 import threading
-from lib.database import Database
+from lib import database
 from pathlib import Path
 
 logger = logging.getLogger()
 
 
 class Encryption:
-    def __init__(self, config, database, tapelibrary, tools, local=False):
+    def __init__(self, config, engine, tapelibrary, tools, local=False):
         self.config = config
-        self.database = database
+        self.engine = engine
+        self.session = database.create_session(engine)
         self.tapelibrary = tapelibrary
         self.tools = tools
         self.local_files = local
@@ -24,54 +26,50 @@ class Encryption:
         self.interrupted = True
 
     def encrypt_single_file_thread(self, threadnr, id, filepath, filename_enc):
-        thread_db = Database(self.config)
-
-        thread_db.update_filename_enc(filename_enc, id)
+        thread_session = database.create_session(self.engine)
+        file = database.update_filename_enc(thread_session, id, filename_enc)
 
         time_started = time.time()
 
         if not self.local_files:
             command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in',
-                       os.path.abspath('{}/{}'.format(self.config['local-data-dir'], filepath)), '-out',
-                       os.path.abspath('{}/{}'.format(self.config['local-enc-dir'], filename_enc)), '-k',
+                       os.path.abspath(f"{self.config['local-data-dir']}/{filepath}"), '-out',
+                       os.path.abspath(f"{self.config['local-enc-dir']}/{filename_enc}"), '-k',
                        self.config['enc-key']]
         else:
             command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in',
-                       os.path.abspath('{}/{}'.format(self.config['local-base-dir'], filepath)), '-out',
-                       os.path.abspath('{}/{}'.format(self.config['local-enc-dir'], filename_enc)), '-k',
+                       os.path.abspath(f"{self.config['local-base-dir']}/{filepath}"), '-out',
+                       os.path.abspath(f"{self.config['local-enc-dir']}/{filename_enc}"), '-k',
                        self.config['enc-key']]
-        openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   preexec_fn=os.setpgrp)
+        openssl = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
 
-        if len(openssl.stderr.readlines()) == 0:
-            logger.debug(
-                "Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
+        if openssl.returncode == 0:
+            logger.debug(f"Execution Time: Encrypt file with openssl: {time.time() - time_started} seconds")
 
             time_started = time.time()
-            md5 = self.tools.md5sum(os.path.abspath("{}/{}".format(self.config['local-enc-dir'], filename_enc)))
-            logger.debug("Execution Time: md5sum encrypted file: {} seconds".format(time.time() - time_started))
+            md5 = self.tools.md5sum(os.path.abspath(f"{self.config['local-enc-dir']}/{filename_enc}"))
+            logger.debug(f"Execution Time: md5sum encrypted file: {time.time() - time_started} seconds")
 
-            filesize = os.path.getsize(os.path.abspath('{}/{}'.format(self.config['local-enc-dir'], filename_enc)))
-            encrypted_date = int(time.time())
-            thread_db.update_file_after_encrypt(filesize, encrypted_date, md5, id)
+            filesize = os.path.getsize(os.path.abspath(f"{self.config['local-enc-dir']}/{filename_enc}"))
+            encrypted_date = datetime.datetime.now()
+            database.update_file_after_encrypt(thread_session, file, filesize, encrypted_date, md5)
 
             if not self.local_files:
                 time_started = time.time()
-                os.remove(os.path.abspath("{}/{}".format(self.config['local-data-dir'], filepath)))
-                logger.debug("Execution Time: Remove file after encryption: {} seconds".format(
-                    time.time() - time_started))
+                os.remove(os.path.abspath(f"{self.config['local-data-dir']}/{filepath}"))
+                logger.debug(f"Execution Time: Remove file after encryption: {time.time() - time_started} seconds")
         else:
-            logger.warning("encrypt file failed, file: {} error: {}".format(id, openssl.stderr.readlines()))
-            logger.debug(
-                "Execution Time: Encrypt file with openssl: {} seconds".format(time.time() - time_started))
+            logger.warning(f"encrypt file failed, file: {id} error: {openssl.stderr}")
+            logger.debug(f"Execution Time: Encrypt file with openssl: {time.time() - time_started} seconds")
 
         self.active_threads.remove(threadnr)
+        thread_session.close()
 
     def encrypt(self):
         logger.info("Starting encrypt files job")
 
         while True:
-            files = self.database.get_files_to_be_encrypted()
+            files = database.get_files_to_be_encrypted(self.session)
 
             if len(files) == 0:
                 break
@@ -86,18 +84,17 @@ class Encryption:
                         next_thread = i
                         break
 
-                logger.info("Starting Thread #{}, processing ({}/{}): id: {}, filename: {}".format(
-                    next_thread, file_count_current, file_count_total, file[0], file[1]
-                ))
+                logger.info(f"Starting Thread #{next_thread}, processing ({file_count_current}/{file_count_total}): "
+                            f"id: {file.id}, filename: {file.filename}")
 
                 filename_enc = self.tools.create_filename_encrypted()
-                while self.database.filename_encrypted_already_used(filename_enc):
-                    logger.warning("Filename ({}) encrypted already exists, creating new one!".format(filename_enc))
+                while database.filename_encrypted_already_used(self.session, filename_enc):
+                    logger.warning(f"Filename ({filename_enc}) encrypted already exists, creating new one!")
                     filename_enc = self.tools.create_filename_encrypted()
 
                 self.active_threads.append(next_thread)
                 x = threading.Thread(target=self.encrypt_single_file_thread,
-                                     args=(next_thread, file[0], file[2], filename_enc,),
+                                     args=(next_thread, file.id, file.path, filename_enc,),
                                      daemon=True)
                 x.start()
 

@@ -195,59 +195,48 @@ class Files:
         logger.info(f"Processing finished: downloaded: {self.downloaded_count}, skipped (already downloaded): "
                     f"{self.skipped_count}, failed: {self.failed_count}, deleted: {self.deleted_count}")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     table_format_verbose = [
-        ('Id',                  lambda i: i[0]),
-        ('Filename',            lambda i: i[1]),
-        ('Path',                lambda i: i[2]),
-        ('Filename Encrypted',  lambda i: i[3]),
-        ('Modified Date',       lambda i: Tools.datetime_from_db(i[4])),
-        ('Filesize',            lambda i: Tools.convert_size(i[5])),
-        ('Filesize Encrypted',  lambda i: Tools.convert_size(i[6])),
-        ('md5sum',              lambda i: i[7]),
-        ('md5sum Encrypted',    lambda i: i[8]),
-        ('Tape',                lambda i: i[9]),
-        ('Downloaded Date',     lambda i: Tools.datetime_from_db(i[10])),
-        ('Encrypted Date',      lambda i: Tools.datetime_from_db(i[11])),
-        ('Written Date',        lambda i: Tools.datetime_from_db(i[12])),
-        ('Downloaded',          lambda i: i[13]),
-        ('Encrypted',           lambda i: i[14]),
-        ('Written',             lambda i: i[15]),
-        ('Verified Count',      lambda i: i[16]),
-        ('Verified Last Date',  lambda i: Tools.datetime_from_db(i[17])),
-        ('Deleted',             lambda i: i[18])
+        ('Id',                  lambda i: i.id),
+        ('Duplicate Id',        lambda i: i.duplicate_id),
+        ('Filename',            lambda i: i.filename),
+        ('Path',                lambda i: i.path),
+        ('Filename Encrypted',  lambda i: i.filename_encrypted),
+        ('Modified Date',       lambda i: Tools.datetime_from_db(i.mtime)),
+        ('Filesize',            lambda i: Tools.convert_size(i.filesize)),
+        ('Filesize Encrypted',  lambda i: Tools.convert_size(i.encrypted_filesize)),
+        ('md5sum',              lambda i: i.md5sum_file),
+        ('md5sum Encrypted',    lambda i: i.md5sum_encrypted),
+        ('Tape',                lambda i: i.tape),
+        ('Downloaded Date',     lambda i: i.downloaded_date),
+        ('Encrypted Date',      lambda i: i.encrypted_date),
+        ('Written Date',        lambda i: i.written_date),
+        ('Downloaded',          lambda i: i.downloaded),
+        ('Encrypted',           lambda i: i.encrypted),
+        ('Written',             lambda i: i.written),
+        ('Verified Count',      lambda i: i.verified_count),
+        ('Verified Last Date',  lambda i: i.verified_last),
+        ('Deleted',             lambda i: i.deleted)
     ]
 
     table_format_short = [
-        ('Id',              lambda i: i[0]),
-        ('Filename',        lambda i: i[1]),
-        ('Modified Date',   lambda i: Tools.datetime_from_db(i[4])),
-        ('Filesize',        lambda i: Tools.convert_size(i[5])),
-        ('Tape',            lambda i: i[9])
+        ('Id',              lambda i: i.id),
+        ('Filename',        lambda i: i.filename),
+        ('Modified Date',   lambda i: i.mtime),
+        ('Filesize',        lambda i: Tools.convert_size(i.filesize)),
+        ('Tape',            lambda i: i.tape)
     ]
 
     def list(self, path_filter, verbose=False, tape=None):
         if len(path_filter) == 0:
             if tape is None:
-                files = self.database.get_all_files()
+                files = database.get_all_files(self.session)
             else:
-                files = self.database.get_files_like(tape=tape)
+                # TODO: Need rework
+                files = database.get_files_like(self.session, tape=tape)
         else:
-            files = self.database.get_files_like(
+            # TODO: Need rework
+            files = database.get_files_like(
+                self.session,
                 Tools.wildcard_to_sql_many(path_filter),
                 tape
             )
@@ -258,22 +247,24 @@ class Files:
         Tools.table_print(files, format)
 
     table_format_duplicate = [
-        ('Original Name',   lambda i: i[0]),
-        ('Modified Date',   lambda i: Tools.datetime_from_db(i[1])),
-        ('Second Name',     lambda i: i[2]),
-        ('Filesize',        lambda i: i[3]),
+        ('Id',              lambda i: i.id),
+        ('Orig. Id',        lambda i: i.file.id),
+        ('Original Path',   lambda i: i.file.filename),
+        ('Modified Date',   lambda i: i.mtime),
+        ('Second Path',     lambda i: i.filename),
+        ('Filesize',        lambda i: i.file.filesize),
     ]
 
     def duplicate(self):
-        dup = self.database.list_duplicates()
+        dup = database.list_duplicates(self.session)
         Tools.table_print(dup, self.table_format_duplicate)
 
     def summary(self):
         table = []
-        table.append(["Total File Count", self.database.get_file_count()])
-        min_s = self.database.get_min_file_size()
-        max_s = self.database.get_max_file_size()
-        total_s = self.database.get_total_file_size()
+        table.append(["Total File Count", database.get_file_count(self.session)])
+        min_s = database.get_min_file_size(self.session)
+        max_s = database.get_max_file_size(self.session)
+        total_s = database.get_total_file_size(self.session)
         table.append(["Smallest File", "{} ({})".format(min_s, Tools.convert_size(min_s))])
         table.append(["Biggest File", "{} ({})".format(max_s, Tools.convert_size(max_s))])
         table.append(["Total File/Backup Size", "{} ({})".format(total_s, Tools.convert_size(total_s))])

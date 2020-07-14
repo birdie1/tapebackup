@@ -35,7 +35,7 @@ class File(Base):
     verified_last = Column(DateTime)
     deleted = Column(Boolean, default=False)
 
-    file = relationship("File")
+    file = relationship("File", remote_side=[id])
 
     def __repr__(self):
         return f'File object: {self.path}'
