@@ -168,16 +168,6 @@ def get_files_to_be_written(session):
         File.written.is_(False)
     ).all()
 
-    # TODO: Remove this old style after everything is in sqlalchemy style
-    #sql = '''SELECT id,
-    #                 filename_encrypted,
-    #                 filename,
-    #                 encrypted_filesize
-    #         FROM files
-    #         WHERE downloaded = 1
-    #         AND encrypted = 1
-    #         AND written = 0'''
-
 
 def get_not_deleted_files(session):
     return session.query(File).filter(File.deleted.is_(False)).all()
@@ -233,6 +223,54 @@ def update_file_after_encrypt(session, file, filesize, encrypted_date, md5sum_en
     file.encrypted = True
     session.commit()
 
+
+def get_full_tapes(session):
+    return session.query(Tape).filter(Tape.full.is_(True)).all()
+
+
+def write_tape_into_database(session, label):
+    tape = Tape(label=label)
+    session.add(tape)
+    session.commit()
+
+
+def get_end_of_data_by_tape(session, label):
+    return session.query(Tape.end_of_data).filter(Tape.label == label).first()
+
+
+def get_files_by_tapelabel(session, label):
+    return session.query(File).filter(File.tape == label).all()
+
+
+def revert_written_to_tape_by_label(session, label):
+    # Use with caution! This will remove written and tape dependencies from all files attached to given label
+    for file in get_files_by_tapelabel(session, label):
+        file.written = False
+        file.written_date = None
+        file.tape = None
+        session.commit()
+
+
+def update_file_after_write(session, file, dt, label, tape_position=None):
+    file.written_date = dt
+    file.tape = label
+    file.written = True
+    file.tapeposition = tape_position
+    session.commit()
+
+
+def update_tape_end_position(session, label, tape_position):
+    tape = session.query(Tape).filter(Tape.label == label).first()
+    tape.end_of_data = tape_position
+    session.commit()
+
+
+def mark_tape_as_full(session, label, dt, count):
+    tape = session.query(Tape).filter(Tape.label == label).first()
+    tape.full_date = dt
+    tape.full = True
+    tape.files_count = count
+    session.commit()
 
 
 
@@ -377,66 +415,18 @@ class Database:
                  AND full = 1'''
         return self.fetchall_from_database(sql, (label,))
 
-    def get_full_tapes(self):
-        sql = '''SELECT label FROM tapedevices
-                 WHERE full = 1'''
-        return self.fetchall_from_database(sql)
-
     def get_used_tapes(self, label):
         sql = '''SELECT id, label, full FROM tapedevices
                  WHERE label = ?
                  AND full = 0'''
         return self.fetchall_from_database(sql, (label,))
 
-    def write_tape_into_database(self, label):
-        sql = '''INSERT OR IGNORE INTO tapedevices (label)
-                 VALUES (?)'''
-        return self.change_entry_in_database(sql, (label,))
 
 
 
-    def get_filecount_by_tapelabel(self, label):
-        sql = '''SELECT count(*) FROM files
-                 WHERE tape = ?'''
-        return self.fetchall_from_database(sql, (label,))
-
-    def get_files_by_tapelabel(self, label):
-        sql = '''SELECT id,
-                        filename,
-                        path,
-                        filesize,
-                        md5sum_encrypted,
-                        filename_encrypted,
-                        tapeposition
-                 FROM files
-                 WHERE tape = ?
-                 ORDER BY tapeposition'''
-        return self.fetchall_from_database(sql, (label,))
-
-    def mark_tape_as_full(self, label, dt):
-        count = self.get_filecount_by_tapelabel(label)[0][0]
-        sql = '''UPDATE tapedevices
-                 SET full_date = ?,
-                     files_count = ?,
-                     full = 1
-                 WHERE label = ?'''
-        return self.change_entry_in_database(sql, (dt, count, label))
-
-    def update_file_after_write(self, dt, label, did, tape_position):
-        sql = '''UPDATE files
-                 SET written_date = ?,
-                     tape = ?,
-                     written = 1,
-                     tapeposition = ?
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (dt, label, tape_position, did))
 
 
 
-    def dump_filenames_to_for_tapes(self, label):
-        sql = '''SELECT id, path, filename_encrypted FROM files
-                 WHERE tape = ?'''
-        return self.fetchall_from_database(sql, (label,))
 
     def get_minimum_verified_count(self):
         sql = 'SELECT MIN(verified_count) FROM files LIMIT 1'
@@ -448,22 +438,9 @@ class Database:
                  AND verified_count = ?'''
         return self.fetchall_from_database(sql, (verified_count,))
 
-    def set_file_alternative_deleted(self, fileid):
-        sql = '''UPDATE alternative_file_names
-                 SET deleted = 1
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (fileid,))
 
-    def get_end_of_data_by_tape(self, tag):
-        sql = '''SELECT end_of_data from tapedevices WHERE label = ?'''
-        return self.fetchall_from_database(sql, (tag,))[0][0]
 
-    def update_tape_end_position(self, label, tape_position):
-        count = self.get_filecount_by_tapelabel(label)[0][0]
-        sql = '''UPDATE tapedevices
-                 SET end_of_data = ?
-                 WHERE label = ?'''
-        return self.change_entry_in_database(sql, (tape_position, label))
+
 
     def add_restore_job(self):
         date = int(time.time())
@@ -561,11 +538,4 @@ class Database:
                  WHERE restore_job_id = ? AND files_id = ?'''
         return self.change_entry_in_database(sql, (restore_id, file_id))
 
-    def revert_written_to_tape_by_label(self, label):
-        # Use with caution! This will remove written and tape dependencies from all files attached to given label
-        sql = '''UPDATE files
-                 SET written = 0,
-                 written_date = NULL,
-                 tape = NULL
-                 WHERE tape = ?'''
-        return self.change_entry_in_database(sql, (label,))
+

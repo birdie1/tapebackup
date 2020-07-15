@@ -291,7 +291,7 @@ if __name__ == "__main__":
         logger.info("########## NEW SESSION ##########")
 
         from functions.tape import Tape
-        current_class = Tape(cfg, database, tapelibrary, tools)
+        current_class = Tape(cfg, db_engine, tapelibrary, tools)
         current_class.write()
 
     elif args.command == "verify":
@@ -300,7 +300,7 @@ if __name__ == "__main__":
         logger.info("########## NEW SESSION ##########")
 
         from functions.verify import Verify
-        current_class = Verify(cfg, database, tapelibrary, tools)
+        current_class = Verify(cfg, db_engine, tapelibrary, tools)
         if args.tape is None:
             current_class.file(args.file, args.count)
         elif args.file is None:
@@ -312,7 +312,7 @@ if __name__ == "__main__":
         logger.info("########## NEW SESSION ##########")
 
         from functions.restore import Restore
-        current_class = Restore(cfg, database, tapelibrary, tools)
+        current_class = Restore(cfg, db_engine, tapelibrary, tools)
 
         if args.command_sub == "start":
             if not args.files and args.filelist is None:
@@ -356,7 +356,7 @@ if __name__ == "__main__":
 
     elif args.command == "tape":
         from functions.tape import Tape
-        current_class = Tape(cfg, database, tapelibrary, tools)
+        current_class = Tape(cfg, db_engine, tapelibrary, tools)
 
         if args.command_sub == "info":
             current_class.info()

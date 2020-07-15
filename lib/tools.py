@@ -140,15 +140,14 @@ class Tools:
     def order_by_startblock(self, files):
         start_and_files = list()
         for file in files:
-            filename_encrypted = file[5]
-            src = Path(self.config['local-tape-mount-dir']) / filename_encrypted
+            src = Path(self.config['local-tape-mount-dir']) / file.filename_encrypted
 
             try:
                 start_str = xattr.getxattr(src.resolve(), 'ltfs.startblock')
                 start = int(start_str)
             except OSError as e:
                 if e.errno == errno.ENODATA:
-                    logging.debug(f'No xattrs available for {filename_encrypted}, falling back to inode ordering')
+                    logging.debug(f'No xattrs available for {file.filename_encrypted}, falling back to inode ordering')
                     stat_result = src.stat()
                     start = stat_result.st_ino
                 else:
