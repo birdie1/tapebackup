@@ -4,9 +4,17 @@ from sqlalchemy.orm import relationship
 Base = declarative_base()
 
 
+class Config(Base):
+    __tablename__ = 'config'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+    value = Column(String)
+
+
 class File(Base):
     """
-    A normal file can start must have filename and path, later all fields will be used!
+    A normal file must have filename and path set, later all fields will be used!
     A duplicate file will have a duplicate_id, filename and path set.
         - It can have set mtime, downloaded_date and deleted.
         - All other fields are only written to the non duplicated file!

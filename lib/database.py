@@ -1,31 +1,74 @@
 import sqlite3
 import logging
+import os
 import sys
 import time
 from sqlalchemy import create_engine, func
 from sqlalchemy.ext.serializer import dumps
 from sqlalchemy.orm import sessionmaker
-from lib.models import File, Tape, RestoreJob, RestoreJobFileMap
+from lib.models import Config, File, Tape, RestoreJob, RestoreJobFileMap
 from sqlite3 import Error
 
 logger = logging.getLogger()
 
 
-def connect(db):
-    engine = create_engine(f"sqlite:///{db}")
+def connect(db_path):
+    engine = create_engine(f"sqlite:///{db_path}")
+    return engine
 
-    # Add table to database if not exist
+
+def create_tables(engine):
+    Config.__table__.create(bind=engine, checkfirst=True)
     File.__table__.create(bind=engine, checkfirst=True)
     Tape.__table__.create(bind=engine, checkfirst=True)
     RestoreJob.__table__.create(bind=engine, checkfirst=True)
     RestoreJobFileMap.__table__.create(bind=engine, checkfirst=True)
 
-    return engine
-
 
 def create_session(engine):
     session = sessionmaker(bind=engine)
     return session()
+
+
+def db_model_version_need_update(engine, session, db_version):
+    logger.debug("Check if database need upgrade")
+    if engine.dialect.has_table(engine, 'config'):
+        version = session.query(Config).filter(Config.name == 'version').first()
+        if int(version.value) != db_version:
+            logger.error(f"Database need manual upgrade, please run './main.py db upgrade' to upgrade from "
+                         f"{version.value} to {db_version}")
+            return True
+        else:
+            return False
+    else:
+        logger.error(f"Database need migration from previous state, please run './main.py db migrate'")
+        return True
+
+
+def init(db_path, db_version):
+    engine = connect(db_path)
+    session = create_session(engine)
+    if not os.path.exists(db_path):
+        logger.info("Creating database")
+        create_tables(engine)
+        insert_or_update_db_version(session, db_version)
+
+    if db_model_version_need_update(engine, session, db_version):
+        session.close()
+        return False
+
+    session.close()
+    return engine
+
+
+def insert_or_update_db_version(session, db_version):
+    version = session.query(Config).filter(Config.name == 'version').first()
+    if version is None:
+        version = Config(name='version')
+        session.add(version)
+
+    version.value = db_version
+    session.commit()
 
 
 def file_exists_by_path(session, relative_path):

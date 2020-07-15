@@ -226,6 +226,7 @@ class Tape:
         logger.debug(f"Execution Time: Deleted encrypted files written to tape: {time.time() - time_started} seconds")
 
         ## Unload tape
+        logger.info("Writing tape finished, unloading tape now!")
         self.tapelibrary.unload()
         return True
 

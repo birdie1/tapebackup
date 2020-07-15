@@ -74,6 +74,13 @@ class Db:
             database.table_col_info(self.session, table, print_out=True)
             database.values_in_col(self.session, table, print_out=True)
 
+    def migrate(self):
+        """
+        This can migrate database from programm version < 0.3 to current state
+        :return:
+        """
+        logger.info("Starting migration of database")
+
     def backup(self):
         print("NOT IMPLEMENTED YET!")
         # TODO: Need Rework

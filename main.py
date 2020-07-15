@@ -13,6 +13,7 @@ from lib import Tapelibrary, Tools
 
 pname = "Tapebackup"
 pversion = '0.2'
+db_model_version = 1
 logger_format = '[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s'
 log_dir = 'logs'
 debug = True
@@ -210,6 +211,7 @@ if __name__ == "__main__":
     subsubparser_db.add_parser('repair', help='Repair SQLite DB after stopped operation')
     subsubparser_db.add_parser('backup', help='Backup SQLite DB to given GIT repo')
     subsubparser_db.add_parser('status', help='Show SQLite Information')
+    subsubparser_db.add_parser('migrate', help='Migrate database from schema pre version 0.3')
 
     subparser_tape = subparsers.add_parser('tape', help='Tapelibrary operations')
     subsubparser_tape = subparser_tape.add_subparsers(title='Subcommands', dest='command_sub')
@@ -257,7 +259,13 @@ if __name__ == "__main__":
             check_requirements()
 
     # Init database
-    db_engine = database.connect(cfg['database'])
+    db_engine = database.init(cfg['database'], db_model_version)
+    if not db_engine:
+        if args.command == "db":
+            if args.command_sub != "migrate" and args.command_sub != "upgrade":
+                sys.exit(1)
+        else:
+            sys.exit(1)
 
     tapelibrary = Tapelibrary(cfg)
     tools = Tools(cfg)
@@ -377,6 +385,8 @@ if __name__ == "__main__":
                 logger.error("'database-backup-git-path' key is empty, please specify git path")
                 sys.exit(0)
             current_class.backup()
+        elif args.command_sub == "migrate":
+            current_class.migrate()
         elif args.command_sub is None:
             subparser_db.print_help()
 
