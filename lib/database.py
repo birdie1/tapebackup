@@ -260,7 +260,7 @@ def update_filename_enc(session, id, filename_enc):
 
 
 def update_file_after_encrypt(session, file, filesize, encrypted_date, md5sum_encrypted):
-    file.encrypted_filesize = filesize
+    file.filesize_encrypted = filesize
     file.encrypted_date = encrypted_date
     file.md5sum_encrypted = md5sum_encrypted
     file.encrypted = True
@@ -390,22 +390,6 @@ class Database:
     #    with open(filename, 'w') as f:
     #        #for line in self.conn.iterdump():
     #        #    f.write('{}\n'.format(line))
-
-    def fetchall_from_database(self, sql, data=()):
-        try_count = 0
-        while True:
-            try_count += 1
-            try:
-                self.cursor.execute(sql, data)
-                break
-            except sqlite3.OperationalError as e:
-                if try_count == 10:
-                    logger.warning("Database locked, giving up. ({}/10)".format(try_count))
-                    sys.exit(1)
-                else:
-                    logger.warning("Database locked, waiting 10s for next try. ({}/10) [{}]".format(try_count, e))
-                    time.sleep(10)
-        return self.cursor.fetchall()
 
     def change_entry_in_database(self, sql, data):
         try_count = 0

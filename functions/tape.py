@@ -120,7 +120,7 @@ class Tape:
         sys.exit(1)
 
     def write_file_ltfs(self, file, free, tape, count, filecount):
-        logger.debug(f"Tape: Free: {free}, Fileid: {file.id}, Filesize: {file.encrypted_filesize}")
+        logger.debug(f"Tape: Free: {free}, Fileid: {file.id}, Filesize: {file.filesize_encrypted}")
 
         logger.info(f"Writing file to tape ({count}/{filecount}): {file.filename}")
         time_started = time.time()
@@ -148,7 +148,7 @@ class Tape:
         filenames_enc = []
         for file in filelist:
             ids.append(file.id)
-            filesizes += file.encrypted_filesize
+            filesizes += file.filesize_encrypted
             filenames_enc.append(file.filename_encrypted)
 
         logger.debug(f"Tape: Free: {free}, Fileid: {ids}, Filesize: {filesizes}")
@@ -166,7 +166,7 @@ class Tape:
 
         if tar.returncode != 0:
             logger.error(f"Failed writing tar to tape, manual check is required. Returncode: {tar.returncode}, "
-                         f"Error: {std_err}")
+                         f"Error: {tar.stderr}")
             sys.exit(1)
 
         logger.debug(f"Execution Time: Copy files via tar to tape: {time.time() - time_started} seconds")
@@ -297,7 +297,7 @@ class Tape:
                 free = (st.f_bavail * st.f_frsize)
 
                 ## Check if enough space on tape, otherwise unmount and use next tape
-                if file.encrypted_filesize > (free - tape_keep_free):
+                if file.filesize_encrypted > (free - tape_keep_free):
                     full = self.tape_is_full_ltfs(next_tape, free)
                     break
                 else:
@@ -338,23 +338,23 @@ class Tape:
                 ## Check if enough space on tape, otherwise unmount and use next tape
                 ## The 1gb maximum chunk size doesn't matter here, because were have 10gb buffer, but if the file is
                 ## bigger than buffer and bigger than free space, it must be processed as full tape
-                if file.encrypted_filesize >= (free - tape_keep_free) or (files_next_chunk_size + file.encrypted_filesize) >= (free - tape_keep_free):
+                if file.filesize_encrypted >= (free - tape_keep_free) or (files_next_chunk_size + file.filesize_encrypted) >= (free - tape_keep_free):
                     if len(files_for_next_chunk) > 0:
                         self.write_file_tar(files_for_next_chunk, free, next_tape)
                         files_for_next_chunk.append(file)
-                        files_next_chunk_size += file.encrypted_filesize
+                        files_next_chunk_size += file.filesize_encrypted
                     full = self.tape_is_full_tar(next_tape, free)
                     break
                 else:
-                    if file.encrypted_filesize >= 1048576:
+                    if file.filesize_encrypted >= 1048576:
                         self.write_file_tar([file], free, next_tape)
-                    elif (files_next_chunk_size + file.encrypted_filesize) >= 1048576:
+                    elif (files_next_chunk_size + file.filesize_encrypted) >= 1048576:
                         self.write_file_tar(files_for_next_chunk, free, next_tape)
                         files_for_next_chunk = [file]
-                        files_next_chunk_size = file.encrypted_filesize
+                        files_next_chunk_size = file.filesize_encrypted
                     else:
                         files_for_next_chunk.append(file)
-                        files_next_chunk_size += file.encrypted_filesize
+                        files_next_chunk_size += file.filesize_encrypted
 
                 if self.interrupted:
                     break

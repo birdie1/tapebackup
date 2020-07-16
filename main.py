@@ -341,6 +341,10 @@ if __name__ == "__main__":
             subparser_restore.print_help()
 
     elif args.command == "files":
+        logger.info("Starting files operation, logging into logs/files.log")
+        change_logger_filehandler('files.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.files import Files
         current_class = Files(cfg, db_engine, tapelibrary, tools)
 
@@ -354,6 +358,10 @@ if __name__ == "__main__":
             subparser_files.print_help()
 
     elif args.command == "log":
+        logger.info("Starting log operation, logging into logs/logging.log")
+        change_logger_filehandler('logging.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.log import Log
         current_class = Log(cfg)
 
@@ -363,6 +371,10 @@ if __name__ == "__main__":
             current_class.remove_debug(log_dir)
 
     elif args.command == "tape":
+        logger.info("Starting tape operation, logging into logs/tape.log")
+        change_logger_filehandler('tape.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.tape import Tape
         current_class = Tape(cfg, db_engine, tapelibrary, tools)
 
@@ -374,6 +386,10 @@ if __name__ == "__main__":
             subparser_tape.print_help()
 
     elif args.command == "db":
+        logger.info("Starting db operation, logging into logs/db.log")
+        change_logger_filehandler('db.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.db import Db
         current_class = Db(cfg, db_engine, tapelibrary, tools)
         if args.command_sub == "repair":
@@ -386,7 +402,7 @@ if __name__ == "__main__":
                 sys.exit(0)
             current_class.backup()
         elif args.command_sub == "migrate":
-            current_class.migrate()
+            current_class.migrate(db_model_version)
         elif args.command_sub is None:
             subparser_db.print_help()
 

@@ -28,7 +28,7 @@ class File(Base):
     filename_encrypted = Column(String, unique=True)
     mtime = Column(DateTime)
     filesize = Column(Integer)
-    encrypted_filesize = Column(Integer)
+    filesize_encrypted = Column(Integer)
     md5sum_file = Column(String)
     md5sum_encrypted = Column(String)
     tape = Column(Integer, ForeignKey('tape.id'))
@@ -60,6 +60,8 @@ class Tape(Base):
     full = Column(Boolean, default=False)
     verified_count = Column(Integer, default=0)
     verified_last = Column(DateTime)
+
+    files = relationship("File")
 
     def __repr__(self):
         return f'Tape object: {self.label}'

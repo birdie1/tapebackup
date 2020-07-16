@@ -203,7 +203,7 @@ class Files:
         ('Filename Encrypted',  lambda i: i.filename_encrypted),
         ('Modified Date',       lambda i: Tools.datetime_from_db(i.mtime)),
         ('Filesize',            lambda i: Tools.convert_size(i.filesize)),
-        ('Filesize Encrypted',  lambda i: Tools.convert_size(i.encrypted_filesize)),
+        ('Filesize Encrypted',  lambda i: Tools.convert_size(i.filesize_encrypted)),
         ('md5sum',              lambda i: i.md5sum_file),
         ('md5sum Encrypted',    lambda i: i.md5sum_encrypted),
         ('Tape',                lambda i: i.tape),
