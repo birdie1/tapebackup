@@ -206,7 +206,7 @@ class Files:
         ('Filesize Encrypted',  lambda i: Tools.convert_size(i.filesize_encrypted)),
         ('md5sum',              lambda i: i.md5sum_file),
         ('md5sum Encrypted',    lambda i: i.md5sum_encrypted),
-        ('Tape',                lambda i: i.tape),
+        ('Tape',                lambda i: i.tape.label),
         ('Downloaded Date',     lambda i: i.downloaded_date),
         ('Encrypted Date',      lambda i: i.encrypted_date),
         ('Written Date',        lambda i: i.written_date),
@@ -223,7 +223,7 @@ class Files:
         ('Filename',        lambda i: i.filename),
         ('Modified Date',   lambda i: i.mtime),
         ('Filesize',        lambda i: Tools.convert_size(i.filesize)),
-        ('Tape',            lambda i: i.tape)
+        ('Tape',            lambda i: i.tape.label)
     ]
 
     def list(self, path_filter, verbose=False, tape=None):

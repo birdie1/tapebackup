@@ -31,7 +31,7 @@ class File(Base):
     filesize_encrypted = Column(Integer)
     md5sum_file = Column(String)
     md5sum_encrypted = Column(String)
-    tape = Column(Integer, ForeignKey('tape.id'))
+    tape_id = Column(Integer, ForeignKey('tape.id'))
     downloaded_date = Column(DateTime)
     encrypted_date = Column(DateTime)
     written_date = Column(DateTime)
@@ -44,6 +44,7 @@ class File(Base):
     deleted = Column(Boolean, default=False)
 
     file = relationship("File", remote_side=[id])
+    tape = relationship("Tape")
 
     def __repr__(self):
         return f'File object: {self.path}'
@@ -85,6 +86,9 @@ class RestoreJobFileMap(Base):
     restored = Column(Boolean, default=False)
     file_id = Column(Integer, ForeignKey('file.id'), nullable=False)
     restore_job_id = Column(Integer, ForeignKey('restore_job.id'), nullable=False)
+
+    file = relationship("File")
+    restore_job = relationship("RestoreJob")
 
     __table_args__ = (UniqueConstraint('file_id', 'restore_job_id'),)
 

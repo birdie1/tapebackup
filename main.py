@@ -417,9 +417,10 @@ if __name__ == "__main__":
         change_logger_filehandler('develop.log')
         logger.info("########## NEW SESSION ##########")
         logger.info("Test 123")
-        print(database.file_exists_by_path('Videos/Filme HD/Eclipse - Biss zum Abendrot (2010, 1920x800, de-dts, en-dts).mkv'))
-        file = database.insert_file('Testfile2', 'Videos/Filme HD/testfile2')
-        print(file.id)
+
+        session = database.create_session(db_engine)
+        file = database.get_restore_job_stats_total(session, 1)
+
         ## For debugging / programming pruspose only
         #from functions.develop import Develop
 

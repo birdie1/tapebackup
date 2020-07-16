@@ -39,7 +39,7 @@ class Tape:
             print(f"    {i.decode('utf-8').strip()}")
 
     def status(self):
-        tapes, tapes_to_remove = self.tapelibrary.get_tapes_tags_from_library()
+        tapes, tapes_to_remove = self.tapelibrary.get_tapes_tags_from_library(self.session)
 
         try:
             lto_whitelist = False
@@ -248,7 +248,7 @@ class Tape:
 
     def write(self):
         full = False
-        tapes, tapes_to_remove = self.tapelibrary.get_tapes_tags_from_library()
+        tapes, tapes_to_remove = self.tapelibrary.get_tapes_tags_from_library(self.session)
         if len(tapes_to_remove) > 0:
             logger.warning(f"These tapes are full, please remove from library: {tapes_to_remove}")
 

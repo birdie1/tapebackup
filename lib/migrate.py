@@ -96,7 +96,7 @@ class Migrate:
             filesize_encrypted=filesize_encrypted,
             md5sum_file=md5sum_file,
             md5sum_encrypted=md5sum_encrypted,
-            tape=tape_id,
+            tape_id=tape_id,
             downloaded_date=downloaded_date,
             encrypted_date=encrypted_date,
             written_date=written_date,

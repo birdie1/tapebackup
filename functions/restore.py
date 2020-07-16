@@ -1,6 +1,7 @@
 import logging
 import sys
 
+from lib import database
 from functions.encryption import Encryption
 from lib.tools import Tools
 
@@ -8,9 +9,9 @@ logger = logging.getLogger()
 
 
 class Restore:
-    def __init__(self, config, database, tapelibrary, tools, local=False):
+    def __init__(self, config, engine, tapelibrary, tools, local=False):
         self.config = config
-        self.database = database
+        self.session = database.create_session(engine)
         self.tapelibrary = tapelibrary
         self.tools = tools
         self.local_files = local
@@ -35,8 +36,8 @@ class Restore:
             logger.error("None of the specified files found")
             return
 
-        self.jobid = self.database.add_restore_job()
-        self.database.add_restore_job_files(self.jobid, file_ids)
+        self.jobid = database.add_restore_job(self.session)
+        database.add_restore_job_files(self.session, self.jobid, file_ids)
 
         print(f"Restore job {self.jobid} created:")
         self.status()
@@ -62,10 +63,10 @@ class Restore:
         else:
             self.jobid = jobid
 
-        tag_in_tapelib, tags_to_remove_from_library = self.tapelibrary.get_tapes_tags_from_library()
+        tag_in_tapelib, tags_to_remove_from_library = self.tapelibrary.get_tapes_tags_from_library(self.session)
         tapes = tag_in_tapelib + tags_to_remove_from_library
 
-        files = self.database.get_restore_job_files(self.jobid, tapes, restored=False)
+        files = database.get_restore_job_files(self.session, self.jobid, tapes, restored=False)
         if files:
             logger.info(f'Restoring {len(files)} files from the loaded tapes')
             self.restore_files(files)
@@ -78,7 +79,7 @@ class Restore:
             print(f'Full tapes to remove: {", ".join(tags_to_remove_from_library)}')
         else:
             logger.info("No more files to restore. Restore job complete.")
-            self.database.set_restore_job_finished(self.jobid)
+            database.set_restore_job_finished(self.session, self.jobid)
 
     def abort(self, jobid=None):
         if jobid is None:
@@ -91,7 +92,7 @@ class Restore:
             sys.exit(1)
         else:
             logger.info(f"Deleting restore job {self.jobid}")
-            self.database.delete_restore_job(self.jobid)
+            database.delete_restore_job(self.session, self.jobid)
 
     table_format_list = [
         ('Job ID',          lambda i: i[0]),
@@ -99,7 +100,7 @@ class Restore:
         ('Remaining Files', lambda i: i[3]),
         ('Remaining Size',  lambda i: i[4]),
     ]
-
+    # TODO sqlalcehmy rework from here!
     def list(self):
         stats_r = self.database.get_restore_job_stats_remaining()
         Tools.table_print(stats_r, self.table_format_list)
@@ -154,8 +155,10 @@ class Restore:
             return [l.rstrip("\n") for l in f]
 
     def set_latest_job(self):
-        self.jobid, _ = self.database.get_latest_restore_job()
-        if self.jobid is None:
+        job = database.get_latest_restore_job(self.session)
+        if job is not None:
+            self.jobid = job.id
+        else:
             logger.error('No restore job available')
             sys.exit(1)
 
@@ -188,7 +191,7 @@ class Restore:
 
         ordered_files = self.tools.order_by_startblock(files)
         for file in ordered_files:
-            self.restore_single_file(file[0], file[2], file[5])
+            self.restore_single_file(file)
             if self.interrupted:
                 logging.info(f'Restore interrupted')
                 break
@@ -198,32 +201,33 @@ class Restore:
 
     # returns a dictionary containing {tape: (n_files, files_size)}
     def make_next_tapes_info(self):
-        files = self.database.get_restore_job_files(self.jobid, restored=False)
+        files = database.get_restore_job_files(self.session, self.jobid, restored=False)
         tapes = dict()
-        for _, _, _, size, tape, _, _ in files:
-            if not size:
+        for file in files:
+            if not file.filesize:
                 size = 0
-            info = (tapes[tape][0] + 1, tapes[tape][1] + size) \
-                    if tape in tapes else (1, size)
-            tapes[tape] = info
-        return list((x,*y) for x,y in sorted(tapes.items(), key=lambda i: i[0]))
+            else:
+                size = file.filesize
+            info = (tapes[file.tape.label][0] + 1, tapes[file.tape.label][1] + size) \
+                    if file.tape.label in tapes else (1, size)
+            tapes[file.tape.label] = info
+        return list((x, *y) for x, y in sorted(tapes.items(), key=lambda i: i[0]))
 
     def group_files_by_tape(self, files):
         grouped = dict()
         for file in files:
-            tape = file[4]
-            args = file[:4] + file[5:]
+            tape = file.tape.label
             if tape in grouped:
-                grouped[tape] += [args]
+                grouped[tape] += [file]
             else:
-                grouped[tape] = [args]
+                grouped[tape] = [file]
         return grouped
 
-    def restore_single_file(self, file_id, path, filename_encrypted):
-        logger.info(f'Restoring {path}')
-        success = self.encryption.decrypt_relative(filename_encrypted, path, mkdir=True)
+    def restore_single_file(self, file):
+        logger.info(f'Restoring {file.path}')
+        success = self.encryption.decrypt_relative(file.filename_encrypted, file.path, mkdir=True)
         if success:
-            logger.debug(f'Restored {path} successfully')
-            self.database.set_file_restored(self.jobid, file_id)
+            logger.debug(f'Restored {file.path} successfully')
+            database.set_file_restored(self.session, self.jobid, file.id)
         else:
-            logger.error(f'Restoring {path} failed')
+            logger.error(f'Restoring {file.path} failed')

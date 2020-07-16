@@ -1,9 +1,9 @@
-import sqlite3
+import datetime
 import logging
 import os
 import sys
 import time
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine, func, or_, and_
 from sqlalchemy.ext.serializer import dumps
 from sqlalchemy.orm import sessionmaker
 from lib.models import Config, File, Tape, RestoreJob, RestoreJobFileMap
@@ -282,7 +282,7 @@ def get_end_of_data_by_tape(session, label):
 
 
 def get_files_by_tapelabel(session, label):
-    return session.query(File).filter(File.tape == label).all()
+    return session.query(File).filter(File.tape.label == label).all()
 
 
 def revert_written_to_tape_by_label(session, label):
@@ -290,13 +290,14 @@ def revert_written_to_tape_by_label(session, label):
     for file in get_files_by_tapelabel(session, label):
         file.written = False
         file.written_date = None
-        file.tape = None
+        file.tape_id = None
         session.commit()
 
 
 def update_file_after_write(session, file, dt, label, tape_position=None):
+    tape = session.query(Tape).filter(Tape.label == label).first()
     file.written_date = dt
-    file.tape = label
+    file.tape_id = tape.id
     file.written = True
     file.tapeposition = tape_position
     session.commit()
@@ -314,6 +315,157 @@ def mark_tape_as_full(session, label, dt, count):
     tape.full = True
     tape.files_count = count
     session.commit()
+
+
+def get_full_tape(session, label):
+    return session.query(Tape).filter(Tape.label == label, Tape.full.is_(True)).first()
+
+
+def add_restore_job(session):
+    job = RestoreJob(startdate=datetime.datetime.now())
+    session.add(job)
+    session.commit()
+
+
+def add_restore_job_files(session, jobid, fileids):
+    for i in fileids:
+        job = RestoreJobFileMap(file_id=i, restore_job_id=jobid)
+        session.add(job)
+    session.commit()
+
+
+def get_restore_job_files(session, jobid, tapes=None, restored=False):
+    filters = ()
+    if tapes is not None:
+        for tape in tapes:
+            filters += (Tape.label == tape,)
+
+    if restored:
+        files = session.query(File).join(RestoreJobFileMap).join(Tape).filter(
+                    RestoreJobFileMap.restore_job_id == jobid,
+                    or_(*filters)
+                ).all()
+    else:
+        files = session.query(File).join(RestoreJobFileMap).join(Tape).filter(
+            RestoreJobFileMap.restore_job_id == jobid,
+            RestoreJobFileMap.restored == restored,
+            or_(*filters)
+        ).all()
+
+    return files
+
+    # TODO Wegschmeißen!
+    if tapes:
+        tape_sql = ' OR '.join(['tape = ?'] * len(tapes))
+        args = (jobid, *tapes)
+    else:
+        tape_sql = 'true'
+        args = (jobid,)
+
+    # only print non-restored files if restored is False
+    restored_sql = 'AND a.restored = 0' if not restored else ''
+
+    sql = f'''SELECT files_id,
+                     filename,
+                     path,
+                     filesize,
+                     tape,
+                     restored,
+                     filename_encrypted
+              FROM restore_job_files_map a
+              LEFT JOIN files b ON b.id = a.files_id
+              WHERE restore_job_id = ? AND ({tape_sql}) {restored_sql}'''
+
+    return self.fetchall_from_database(sql, args)
+
+
+def set_file_restored(session, restore_id, file_id):
+    job_map = session.query(RestoreJobFileMap).filter(RestoreJobFileMap.restore_job_id, RestoreJobFileMap.file_id).first()
+    job_map.restored = True
+    session.commit()
+
+
+def set_restore_job_finished(session, jobid):
+    job = session.query(RestoreJob).filter(RestoreJob.id == jobid).first()
+    job.finished = datetime.datetime.now()
+    session.commit()
+
+
+def get_latest_restore_job(session):
+    return session.query(RestoreJob).order_by(RestoreJob.id.desc()).first()
+
+
+def delete_restore_job(session, id):
+    session.query(RestoreJob).filter(RestoreJob.id == id).delete()
+    session.commit()
+
+
+def get_restore_job_stats_remaining(session, jobid=None):
+    if jobid is None:
+        jobid = get_latest_restore_job(session)
+
+    job = session.query(
+        RestoreJob.id,
+        RestoreJob.startdate,
+        func.count(RestoreJobFileMap.id),
+        func.sum(File.filesize),
+        func.count(File.tape_id).distinct()
+    ).join(RestoreJobFileMap).join(File).filter(jobid, RestoreJobFileMap.restored == False).first()
+    return job
+
+    # TODO: wegschmeißen
+    sql = '''SELECT a.id,
+                    a.startdate,
+                    a.finished,
+                    count(b.files_id),
+                    sum(c.filesize),
+                    count(DISTINCT c.tape)
+             FROM restore_job a
+             LEFT JOIN restore_job_files_map b ON b.restore_job_id = a.id
+             LEFT JOIN files c ON c.id = b.files_id
+             WHERE b.restored = 0 AND {}
+             GROUP BY a.id {}'''
+    if jobid is not None:
+        sql = sql.format(f'a.id = {jobid}', '')
+    else:
+        sql = sql.format('true', 'ORDER BY a.id DESC LIMIT 1')
+    return self.fetchall_from_database(sql)
+
+
+def get_restore_job_stats_total(session, jobid=None):
+    if jobid is None:
+        jobid = get_latest_restore_job(session)
+
+    job = session.query(
+        RestoreJob.id,
+        RestoreJob.startdate,
+        func.count(RestoreJobFileMap.id),
+        func.sum(File.filesize),
+        func.count(File.tape_id).distinct()
+    ).join(RestoreJobFileMap).join(File).filter(jobid).first()
+    print(job)
+    return job
+
+    # TODO: Wegschmeißen
+    sql = '''SELECT a.id,
+                    a.startdate,
+                    a.finished,
+                    COUNT(b.files_id),
+                    SUM(c.filesize),
+                    COUNT(DISTINCT c.tape)
+             FROM restore_job a
+             LEFT JOIN restore_job_files_map b ON b.restore_job_id = a.id
+             LEFT JOIN files c ON c.id = b.files_id
+             WHERE {}
+             GROUP BY a.id {}'''
+    if jobid is not None:
+        sql = sql.format(f'a.id = {jobid}', '')
+    else:
+        sql = sql.format('true', 'ORDER BY a.id DESC LIMIT 1')
+    return self.fetchall_from_database(sql)
+
+
+
 
 
 
@@ -356,213 +508,10 @@ def get_files_by_path_old(self, files=[], tape=None, items=[], file_compare='pat
 # TODO till here files.py already changed
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 class Database:
-
-
-
-
     # TODO: Need Rework
     #def export(self, filename):
     #    with open(filename, 'w') as f:
     #        #for line in self.conn.iterdump():
     #        #    f.write('{}\n'.format(line))
-
-    def change_entry_in_database(self, sql, data):
-        try_count = 0
-        while True:
-            try_count += 1
-            try:
-                self.cursor.execute(sql, data)
-                self.conn.commit()
-                break
-            except sqlite3.OperationalError as e:
-                if try_count == 10:
-                    logger.warning("Database locked, giving up. ({}/10)".format(try_count))
-                    sys.exit(1)
-                else:
-                    logger.warning("Database locked, waiting 10s for next try. ({}/10) [{}]".format(try_count, e))
-                    time.sleep(10)
-        return self.cursor.lastrowid
-
-    def bulk_insert_entry_in_database(self, sql, data):
-        try_count = 0
-        while True:
-            try_count += 1
-            try:
-                self.cursor.executemany(sql, data)
-                self.conn.commit()
-                break
-            except sqlite3.OperationalError:
-                if try_count == 10:
-                    logger.warning("Database locked, giving up. ({}/10)".format(try_count))
-                    sys.exit(1)
-                else:
-                    logger.warning("Database locked, waiting 10s for next try. ({}/10)".format(try_count))
-                    time.sleep(10)
-        return True
-
-
-
-
-
-
-
-
-
-
-
-
-    def get_full_tape(self, label):
-        sql = '''SELECT id, label, full FROM tapedevices
-                 WHERE label = ?
-                 AND full = 1'''
-        return self.fetchall_from_database(sql, (label,))
-
-    def get_used_tapes(self, label):
-        sql = '''SELECT id, label, full FROM tapedevices
-                 WHERE label = ?
-                 AND full = 0'''
-        return self.fetchall_from_database(sql, (label,))
-
-
-
-
-
-
-
-
-    def get_minimum_verified_count(self):
-        sql = 'SELECT MIN(verified_count) FROM files LIMIT 1'
-        return self.fetchall_from_database(sql)
-
-    def get_ids_by_verified_count(self, verified_count):
-        sql = '''SELECT id, filename, filename_encrypted, tape FROM files
-                 WHERE tape NOT NULL
-                 AND verified_count = ?'''
-        return self.fetchall_from_database(sql, (verified_count,))
-
-
-
-
-
-    def add_restore_job(self):
-        date = int(time.time())
-        sql = '''INSERT INTO restore_job (startdate)
-                 VALUES (?)'''
-        return self.change_entry_in_database(sql, (date,))
-
-    def add_restore_job_files(self, jobid, fileids):
-        sql = '''INSERT OR IGNORE INTO restore_job_files_map (files_id, restore_job_id)
-                 VALUES (?,?)'''
-        return self.bulk_insert_entry_in_database(sql, ((id, jobid) for id in fileids))
-
-    def delete_restore_job(self, id):
-        sql = '''DELETE FROM restore_job
-                 WHERE id = ?'''
-        self.change_entry_in_database(sql, (id,))
-
-    def get_restore_job_stats_total(self, jobid=None):
-        sql = '''SELECT a.id,
-                        a.startdate,
-                        a.finished,
-                        COUNT(b.files_id),
-                        SUM(c.filesize),
-                        COUNT(DISTINCT c.tape)
-                 FROM restore_job a
-                 LEFT JOIN restore_job_files_map b ON b.restore_job_id = a.id
-                 LEFT JOIN files c ON c.id = b.files_id
-                 WHERE {}
-                 GROUP BY a.id {}'''
-        if jobid is not None:
-            sql = sql.format(f'a.id = {jobid}', '')
-        else:
-            sql = sql.format('true', 'ORDER BY a.id DESC LIMIT 1')
-        return self.fetchall_from_database(sql)
-
-    def get_restore_job_stats_remaining(self, jobid=None):
-        sql = '''SELECT a.id,
-                        a.startdate,
-                        a.finished,
-                        count(b.files_id),
-                        sum(c.filesize),
-                        count(DISTINCT c.tape)
-                 FROM restore_job a
-                 LEFT JOIN restore_job_files_map b ON b.restore_job_id = a.id
-                 LEFT JOIN files c ON c.id = b.files_id
-                 WHERE b.restored = 0 AND {}
-                 GROUP BY a.id {}'''
-        if jobid is not None:
-            sql = sql.format(f'a.id = {jobid}', '')
-        else:
-            sql = sql.format('true', 'ORDER BY a.id DESC LIMIT 1')
-        return self.fetchall_from_database(sql)
-
-    def set_restore_job_finished(self, jobid):
-        sql = '''UPDATE restore_job
-                 SET finished = strftime('%s', 'now')
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (jobid,))
-
-    def get_latest_restore_job(self):
-        sql = 'SELECT id, startdate FROM restore_job ORDER BY id DESC LIMIT 1'
-        res = self.fetchall_from_database(sql)
-        if res:
-            return res[0][0], res[0][1]
-        else:
-            return None, None
-
-    def get_restore_job_files(self, jobid, tapes=None, restored=False):
-        if tapes:
-            tape_sql = ' OR '.join(['tape = ?'] * len(tapes))
-            args = (jobid, *tapes)
-        else:
-            tape_sql = 'true'
-            args = (jobid,)
-
-        # only print non-restored files if restored is False
-        restored_sql = 'AND a.restored = 0' if not restored else ''
-
-        sql = f'''SELECT files_id,
-                         filename,
-                         path,
-                         filesize,
-                         tape,
-                         restored,
-                         filename_encrypted
-                  FROM restore_job_files_map a
-                  LEFT JOIN files b ON b.id = a.files_id
-                  WHERE restore_job_id = ? AND ({tape_sql}) {restored_sql}'''
-
-        return self.fetchall_from_database(sql, args)
-
-    def set_file_restored(self, restore_id, file_id):
-        sql = '''UPDATE restore_job_files_map
-                 SET restored = 1
-                 WHERE restore_job_id = ? AND files_id = ?'''
-        return self.change_entry_in_database(sql, (restore_id, file_id))
-
-
+    pass
