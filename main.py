@@ -16,7 +16,7 @@ pversion = '0.2'
 db_model_version = 1
 logger_format = '[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s'
 log_dir = 'logs'
-debug = True
+debug = False
 
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
