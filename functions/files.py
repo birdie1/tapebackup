@@ -257,6 +257,7 @@ class Files:
     def duplicate(self):
         dup = database.list_duplicates(self.session)
         Tools.table_print(dup, self.table_format_duplicate)
+        print(f"Duplicate files: {len(dup)}")
 
     def summary(self):
         table = []
