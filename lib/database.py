@@ -140,8 +140,8 @@ def delete_broken_file(session, file):
     session.commit()
 
 
-def get_all_files(self):
-    return self.session.query(File).all()
+def get_all_files(session):
+    return session.query(File).all()
 
 
 def get_tables(session):
@@ -354,30 +354,6 @@ def get_restore_job_files(session, jobid, tapes=None, restored=False):
 
     return files
 
-    # TODO Wegschmeißen!
-    if tapes:
-        tape_sql = ' OR '.join(['tape = ?'] * len(tapes))
-        args = (jobid, *tapes)
-    else:
-        tape_sql = 'true'
-        args = (jobid,)
-
-    # only print non-restored files if restored is False
-    restored_sql = 'AND a.restored = 0' if not restored else ''
-
-    sql = f'''SELECT files_id,
-                     filename,
-                     path,
-                     filesize,
-                     tape,
-                     restored,
-                     filename_encrypted
-              FROM restore_job_files_map a
-              LEFT JOIN files b ON b.id = a.files_id
-              WHERE restore_job_id = ? AND ({tape_sql}) {restored_sql}'''
-
-    return self.fetchall_from_database(sql, args)
-
 
 def set_file_restored(session, restore_id, file_id):
     job_map = session.query(RestoreJobFileMap).filter(RestoreJobFileMap.restore_job_id, RestoreJobFileMap.file_id).first()
@@ -409,27 +385,14 @@ def get_restore_job_stats_remaining(session, jobid=None):
         RestoreJob.startdate,
         func.count(RestoreJobFileMap.id),
         func.sum(File.filesize),
-        func.count(File.tape_id).distinct()
-    ).join(RestoreJobFileMap).join(File).filter(jobid, RestoreJobFileMap.restored == False).first()
-    return job
+        func.count(File.tape_id.distinct())
+    ).join(
+        RestoreJobFileMap, RestoreJobFileMap.restore_job_id == RestoreJob.id
+    ).join(
+        File, RestoreJobFileMap.file_id == File.id
+    ).filter(RestoreJob.id == jobid, RestoreJobFileMap.restored == False).first()
 
-    # TODO: wegschmeißen
-    sql = '''SELECT a.id,
-                    a.startdate,
-                    a.finished,
-                    count(b.files_id),
-                    sum(c.filesize),
-                    count(DISTINCT c.tape)
-             FROM restore_job a
-             LEFT JOIN restore_job_files_map b ON b.restore_job_id = a.id
-             LEFT JOIN files c ON c.id = b.files_id
-             WHERE b.restored = 0 AND {}
-             GROUP BY a.id {}'''
-    if jobid is not None:
-        sql = sql.format(f'a.id = {jobid}', '')
-    else:
-        sql = sql.format('true', 'ORDER BY a.id DESC LIMIT 1')
-    return self.fetchall_from_database(sql)
+    return job
 
 
 def get_restore_job_stats_total(session, jobid=None):
@@ -441,77 +404,35 @@ def get_restore_job_stats_total(session, jobid=None):
         RestoreJob.startdate,
         func.count(RestoreJobFileMap.id),
         func.sum(File.filesize),
-        func.count(File.tape_id).distinct()
-    ).join(RestoreJobFileMap).join(File).filter(jobid).first()
-    print(job)
+        func.count(File.tape_id.distinct())
+    ).join(
+        RestoreJobFileMap, RestoreJobFileMap.restore_job_id == RestoreJob.id
+    ).join(
+        File, RestoreJobFileMap.file_id == File.id
+    ).filter(RestoreJob.id == jobid).first()
+
     return job
 
-    # TODO: Wegschmeißen
-    sql = '''SELECT a.id,
-                    a.startdate,
-                    a.finished,
-                    COUNT(b.files_id),
-                    SUM(c.filesize),
-                    COUNT(DISTINCT c.tape)
-             FROM restore_job a
-             LEFT JOIN restore_job_files_map b ON b.restore_job_id = a.id
-             LEFT JOIN files c ON c.id = b.files_id
-             WHERE {}
-             GROUP BY a.id {}'''
-    if jobid is not None:
-        sql = sql.format(f'a.id = {jobid}', '')
-    else:
-        sql = sql.format('true', 'ORDER BY a.id DESC LIMIT 1')
-    return self.fetchall_from_database(sql)
 
-
-
-
-
-
-
-
-
-# TODO from here files.py already changed
-def get_files_like(session, likes=[], tape=None, written=False):
-    if len(likes):
-        where_files = ' or '.join([file_compare] * len(files))
-    else:
-        where_files = 'true'
-
-def get_files_like_old(self, likes=[], tape=None, items=[], written=False):
-    return self.get_files_by_path(likes, tape, items, file_compare='path like ?', written=written)
-
-
-def get_files_by_path_old(self, files=[], tape=None, items=[], file_compare='path = ?', written=False):
-    if files:
-        where_files = ' or '.join([file_compare] * len(files))
-    else:
-        where_files = 'true'
-
-    if items:
-        items_sql = ','.join(items)
-    else:
-        items_sql = '*'
-
-    sql = f'SELECT {items_sql} FROM files WHERE ({where_files})'
-
+def get_files_like(session, filelist=[], tape=None, written=False):
+    tape_filters = ()
+    file_filters = ()
     if tape is not None:
-        sql += ' AND tape = ?'
-        files += [tape]
+        tape_filters += (Tape.label == tape,)
+
+    for file in filelist:
+        file_filters += (File.path.contains(file),)
 
     if written:
-        sql += ' AND written=1'
+        files = session.query(File).join(Tape).filter(
+            or_(*tape_filters),
+            or_(*file_filters),
+            File.written.is_(True)
+        ).all()
+    else:
+        files = session.query(File).join(Tape).filter(
+            or_(*tape_filters),
+            and_(*file_filters)
+        ).all()
 
-    return self.fetchall_from_database(sql, files)
-
-# TODO till here files.py already changed
-
-
-class Database:
-    # TODO: Need Rework
-    #def export(self, filename):
-    #    with open(filename, 'w') as f:
-    #        #for line in self.conn.iterdump():
-    #        #    f.write('{}\n'.format(line))
-    pass
+    return files

@@ -45,6 +45,7 @@ class File(Base):
 
     file = relationship("File", remote_side=[id])
     tape = relationship("Tape")
+    restoreJobFileMap = relationship("RestoreJobFileMap")
 
     def __repr__(self):
         return f'File object: {self.path}'

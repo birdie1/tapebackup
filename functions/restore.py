@@ -100,9 +100,9 @@ class Restore:
         ('Remaining Files', lambda i: i[3]),
         ('Remaining Size',  lambda i: i[4]),
     ]
-    # TODO sqlalcehmy rework from here!
+
     def list(self):
-        stats_r = self.database.get_restore_job_stats_remaining()
+        stats_r = database.get_restore_job_stats_remaining(self.session)
         Tools.table_print(stats_r, self.table_format_list)
 
     table_format_status = [
@@ -113,10 +113,10 @@ class Restore:
     ]
 
     table_format_status_files = [
-        ('Filename',    lambda i: i[1]),
-        ('Filesize',    lambda i: Tools.convert_size(i[3])),
-        ('Tape',        lambda i: i[4]),
-        ('Restored',    lambda i: 'Yes' if i[5] else 'No'),
+        ('Filename',    lambda i: i.filename),
+        ('Filesize',    lambda i: Tools.convert_size(i.filesize)),
+        ('Tape',        lambda i: i.tape.label),
+        ('Restored',    lambda i: 'Yes' if i.restoreJobFileMap.restored else 'No'),
     ]
 
     def status(self, jobid=None, verbose=False):
@@ -130,8 +130,8 @@ class Restore:
             sys.exit(1)
 
         table = []
-        stats_t = self.database.get_restore_job_stats_total(self.jobid)[0]
-        stats_r = self.database.get_restore_job_stats_remaining(self.jobid)
+        stats_t = database.get_restore_job_stats_total(self.session, self.jobid)[0]
+        stats_r = database.get_restore_job_stats_remaining(self.session, self.jobid)
         if stats_r:
             stats_r = stats_r[0]
         else:
@@ -146,7 +146,7 @@ class Restore:
         Tools.table_print(table_data, self.table_format_status)
 
         if verbose:
-            files = self.database.get_restore_job_files(self.jobid, restored=True)
+            files = database.get_restore_job_files(self.jobid, restored=True)
             Tools.table_print(files, self.table_format_status_files)
 
     def read_filelist(self, filelist):
@@ -166,15 +166,14 @@ class Restore:
     # warn if some do not exist and optionally filter by a tape name
     def resolve_file_ids(self, files, tape=None):
         logger.debug(f'Resolving {len(files)} files in database')
-        db_files = self.database.get_files_like(files, tape,
-            items=['id', 'path'], written=True)
+        db_files = database.get_files_like(self.session, files, tape, written=True)
         for file in files:
             # don't check wildcard files
             if '%' in file:
                 continue
-            if not any(path == file for id, path in db_files):
+            if not any(f.path == file for f in db_files):
                 logger.warning(f'File {file} not found')
-        return [id for id,file in db_files]
+        return [f.id for f in db_files]
 
     # restores a list of files from database
     def restore_files(self, files):

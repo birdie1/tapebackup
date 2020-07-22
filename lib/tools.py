@@ -122,9 +122,17 @@ class Tools:
     def wildcard_to_sql(string):
         return string.replace('*', '%')
 
+    @staticmethod
+    def wildcard_to_sqlalchemy(string):
+        return string.replace('*', '')
+
     @classmethod
     def wildcard_to_sql_many(cls, strings):
-        return [cls.wildcard_to_sql(s) for s in strings]
+        return [cls.wildcard_to_sql(s) for s in strings]\
+
+    @classmethod
+    def wildcard_to_sql_many_sqlalchemy(cls, strings):
+        return [cls.wildcard_to_sqlalchemy(s) for s in strings]
 
     @staticmethod
     def table_format_entry(format, file):
