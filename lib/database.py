@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, func, or_, and_
 from sqlalchemy.ext.serializer import dumps
 from sqlalchemy.orm import sessionmaker
 from lib.models import Config, File, Tape, RestoreJob, RestoreJobFileMap
-from sqlite3 import Error
+from sqlite3 import Error, OperationalError
 
 logger = logging.getLogger()
 
@@ -99,6 +99,23 @@ def get_file_by_md5(session, md5):
     return session.query(File).filter(File.md5sum_file == md5).first()
 
 
+def commit(session):
+    try_count = 0
+    while True:
+        try_count += 1
+        try:
+            session.commit()
+            break
+        except OperationalError as error:
+            if try_count > 10:
+                logger.error(f"Database locked, giving up. ({try_count}/10). Error: {error}")
+                logger.error(f"Please run ./main.py db repair to remove stale entries!")
+                sys.exit(1)
+            else:
+                logger.warning(f"Database locked, waiting 5 seconds for next retry ({try_count}/10). Error: {error}")
+                time.sleep(5)
+
+
 def update_file_after_download(session, file, filesize, mtime, downloaded_date, md5):
     """
     Update file object after download
@@ -115,7 +132,8 @@ def update_file_after_download(session, file, filesize, mtime, downloaded_date, 
     file.downloaded_date = downloaded_date
     file.md5sum_file = md5
     file.downloaded = True
-    session.commit()
+
+    commit(session)
 
 
 def update_duplicate_file_after_download(session, file, duplicate_file, mtime, downloaded_date):
@@ -131,13 +149,14 @@ def update_duplicate_file_after_download(session, file, duplicate_file, mtime, d
     file.duplicate_id = duplicate_file.id
     file.mtime = mtime
     file.downloaded_date = downloaded_date
-    session.commit()
+
+    commit(session)
     return file
 
 
 def delete_broken_file(session, file):
     session.delete(file)
-    session.commit()
+    commit(session)
 
 
 def get_all_files(session):
@@ -201,7 +220,7 @@ def get_broken_db_encrypt_entry(session):
 
 def update_broken_db_encrypt_entry(session, file):
     file.filename_encrypted = None
-    session.commit()
+    commit(session)
 
 
 def get_files_to_be_written(session):
@@ -218,7 +237,7 @@ def get_not_deleted_files(session):
 
 def set_file_deleted(session, file):
     file.deleted = True
-    session.commit()
+    commit(session)
 
 
 def get_file_count(session):
@@ -255,7 +274,7 @@ def filename_encrypted_already_used(session, filename_encrypted):
 def update_filename_enc(session, id, filename_enc):
     file = session.query(File).filter(File.id == id).first()
     file.filename_encrypted = filename_enc
-    session.commit()
+    commit(session)
     return file
 
 
@@ -264,7 +283,7 @@ def update_file_after_encrypt(session, file, filesize, encrypted_date, md5sum_en
     file.encrypted_date = encrypted_date
     file.md5sum_encrypted = md5sum_encrypted
     file.encrypted = True
-    session.commit()
+    commit(session)
 
 
 def get_full_tapes(session):
@@ -274,7 +293,7 @@ def get_full_tapes(session):
 def write_tape_into_database(session, label):
     tape = Tape(label=label)
     session.add(tape)
-    session.commit()
+    commit(session)
 
 
 def get_end_of_data_by_tape(session, label):
@@ -291,7 +310,7 @@ def revert_written_to_tape_by_label(session, label):
         file.written = False
         file.written_date = None
         file.tape_id = None
-        session.commit()
+        commit(session)
 
 
 def update_file_after_write(session, file, dt, label, tape_position=None):
@@ -300,13 +319,13 @@ def update_file_after_write(session, file, dt, label, tape_position=None):
     file.tape_id = tape.id
     file.written = True
     file.tapeposition = tape_position
-    session.commit()
+    commit(session)
 
 
 def update_tape_end_position(session, label, tape_position):
     tape = session.query(Tape).filter(Tape.label == label).first()
     tape.end_of_data = tape_position
-    session.commit()
+    commit(session)
 
 
 def mark_tape_as_full(session, label, dt, count):
@@ -314,7 +333,7 @@ def mark_tape_as_full(session, label, dt, count):
     tape.full_date = dt
     tape.full = True
     tape.files_count = count
-    session.commit()
+    commit(session)
 
 
 def get_full_tape(session, label):
@@ -324,14 +343,14 @@ def get_full_tape(session, label):
 def add_restore_job(session):
     job = RestoreJob(startdate=datetime.datetime.now())
     session.add(job)
-    session.commit()
+    commit(session)
 
 
 def add_restore_job_files(session, jobid, fileids):
     for i in fileids:
         job = RestoreJobFileMap(file_id=i, restore_job_id=jobid)
         session.add(job)
-    session.commit()
+    commit(session)
 
 
 def get_restore_job_files(session, jobid, tapes=None, restored=False):
@@ -358,13 +377,13 @@ def get_restore_job_files(session, jobid, tapes=None, restored=False):
 def set_file_restored(session, restore_id, file_id):
     job_map = session.query(RestoreJobFileMap).filter(RestoreJobFileMap.restore_job_id, RestoreJobFileMap.file_id).first()
     job_map.restored = True
-    session.commit()
+    commit(session)
 
 
 def set_restore_job_finished(session, jobid):
     job = session.query(RestoreJob).filter(RestoreJob.id == jobid).first()
     job.finished = datetime.datetime.now()
-    session.commit()
+    commit(session)
 
 
 def get_latest_restore_job(session):
@@ -373,7 +392,7 @@ def get_latest_restore_job(session):
 
 def delete_restore_job(session, id):
     session.query(RestoreJob).filter(RestoreJob.id == id).delete()
-    session.commit()
+    commit(session)
 
 
 def get_restore_job_stats_remaining(session, jobid=None):
