@@ -4,10 +4,10 @@ import os
 import sys
 import time
 from sqlalchemy import create_engine, func, or_, and_
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.serializer import dumps
 from sqlalchemy.orm import sessionmaker
 from lib.models import Config, File, Tape, RestoreJob, RestoreJobFileMap
-from sqlite3 import Error, OperationalError
 
 logger = logging.getLogger()
 
