@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+import sqlite3
 import sys
 import time
 from sqlalchemy import create_engine, func, or_, and_
@@ -107,6 +108,14 @@ def commit(session):
             session.commit()
             break
         except OperationalError as error:
+            if try_count > 10:
+                logger.error(f"Database locked, giving up. ({try_count}/10). Error: {error}")
+                logger.error(f"Please run ./main.py db repair to remove stale entries!")
+                sys.exit(1)
+            else:
+                logger.warning(f"Database locked, waiting 5 seconds for next retry ({try_count}/10). Error: {error}")
+                time.sleep(5)
+        except sqlite3.OperationalError:
             if try_count > 10:
                 logger.error(f"Database locked, giving up. ({try_count}/10). Error: {error}")
                 logger.error(f"Please run ./main.py db repair to remove stale entries!")

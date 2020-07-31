@@ -44,7 +44,7 @@ class Tapelibrary:
                 if not lto_whitelist:
                     if tag in self.config['lto-blacklist']:
                         logger.debug('Ignore Tag {} because exists in ignore list in config'.format(tag))
-                    elif len(database.get_full_tape(session, tag)) > 0:
+                    elif database.get_full_tape(session, tag) is not None:
                         logger.debug('Ignore Tag {} because exists in database and is full'.format(tag))
                         tags_to_remove_from_library.append(tag)
                     else:

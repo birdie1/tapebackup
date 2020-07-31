@@ -31,21 +31,36 @@ class Files:
     def set_interrupted(self):
         self.interrupted = True
 
+
     def get_remote_filelist(self):
+        return_list = []
+        count = 0
         time_started = time.time()
 
-        logger.info("Retrieving file list from server '{}' directory '{}'".format(self.config['remote-server'],
-                                                                                  self.config['remote-data-dir']))
+        logger.info(f"Retrieving file list from server {self.config['remote-server']} directory {self.config['remote-data-dir']}")
         commands = ['ssh', self.config['remote-server'], f"find \"{self.config['remote-data-dir']}\" -type f"]
-        ssh = subprocess.run(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if ssh.returncode != 0:
-            logger.error(f"Failed to retrieve filelist from remote server, error: {ssh.stderr}")
+        process = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        while True:
+            output = process.stdout.readline().strip().decode("UTF-8")
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                count += 1
+                return_list.append(output)
+                if count % 10000 == 0:
+                    logger.info(f"Entries found until now: {count}")
+        rc = process.poll()
+
+        if rc != 0:
+            logger.error(f"Failed to retrieve filelist from remote server, error: {process.stderr}")
+            logger.debug(f"Execution Time: Building filelist: {time.time() - time_started} seconds")
             sys.exit(1)
         else:
-            logger.info(
-                f"Got file list from server {self.config['remote-server']} directory '{self.config['remote-data-dir']}'")
+            logger.info(f"Got file list from server {self.config['remote-server']} directory '{self.config['remote-data-dir']}'")
+            logger.info(f"Entries found: {count}")
             logger.debug(f"Execution Time: Building filelist: {time.time() - time_started} seconds")
-            return ssh.stdout.decode("UTF-8").split('\n')
+            return return_list
+
 
     def get_thread(self, threadnr, relpath, fullpath):
         """
@@ -185,6 +200,7 @@ class Files:
                     for fpath in result:
                         if fpath.strip() == "{}/{}".format(base_dir, file.path):
                             still_exists = True
+                            break
 
                     ## Set delete flag in database
                     if not still_exists:

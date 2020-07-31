@@ -177,8 +177,8 @@ class Tools:
         cur_space = 0
         count = 0
         for file in filelist:
-            if (cur_space + file[3]) < free_space:
-                cur_space += file[3]
+            if (cur_space + file.filesize) < free_space:
+                cur_space += file.filesize
                 count += 1
             else:
                 return count
