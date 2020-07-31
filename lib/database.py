@@ -300,9 +300,10 @@ def get_full_tapes(session):
 
 
 def write_tape_into_database(session, label):
-    tape = Tape(label=label)
-    session.add(tape)
-    commit(session)
+    if session.query(Tape).filter(Tape.label == label).first() is None:
+        tape = Tape(label=label)
+        session.add(tape)
+        commit(session)
 
 
 def get_end_of_data_by_tape(session, label):
