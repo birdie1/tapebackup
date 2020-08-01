@@ -3,23 +3,30 @@ import random
 import os
 import subprocess
 import sys
+
+from lib import database
+
 logger = logging.getLogger()
 
 class Verify:
-    def __init__(self, config, database, tapelibrary, tools):
+    def __init__(self, config, engine, tapelibrary, tools):
         self.config = config
-        self.database = database
+        self.session = database.create_session(engine)
         self.tapelibrary = tapelibrary
         self.tools = tools
 
     def file(self, arg, count):
         if arg == "":
             logger.info("Choosing {} files for verification".format(count))
-            ids = self.database.get_ids_by_verified_count(
-                self.database.get_minimum_verified_count()[0][0]
-            )
+            #SELECT id, filename, filename_encrypted, tape FROM files
+            #     WHERE tape NOT NULL
+            #     AND verified_count = ?
+            #was ids = self.database.get_ids_by_verified_count(
+                # sql = 'SELECT MIN(verified_count) FROM files LIMIT 1'
+                # was self.database.get_minimum_verified_count()[0][0]
+            #)
 
-            tapes, tapes_to_remove = self.tapelibrary.get_tapes_tags_from_library()
+            tapes, tapes_to_remove = self.tapelibrary.get_tapes_tags_from_library(self.session)
             tapes.extend(tapes_to_remove)
 
             possible_without_tapechange = []

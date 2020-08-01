@@ -2,3 +2,4 @@ pyyaml
 tabulate
 psutil
 xattr
+sqlalchemy

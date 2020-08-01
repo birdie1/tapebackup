@@ -7,11 +7,13 @@ import argparse
 import os
 import signal
 import psutil
-from lib import Database, Tapelibrary, Tools
+from lib import database
+from lib import Tapelibrary, Tools
 
 
 pname = "Tapebackup"
 pversion = '0.2'
+db_model_version = 1
 logger_format = '[%(levelname)-7s] (%(asctime)s) %(filename)s::%(lineno)d %(message)s'
 log_dir = 'logs'
 debug = False
@@ -121,10 +123,8 @@ def print_debug_info():
 def create_key():
     print(tools.create_encryption_key())
 
+
 def check_requirements():
-    if not os.path.isfile(cfg['database']):
-        logger.error("Database does not exist: {}. Please execute './main.py db init' first".format(cfg['database']))
-        sys.exit(0)
     if cfg['enc-key'] == "" or len(cfg['enc-key']) < 128:
         logger.error(
             "Encryption key is empty, please use at least 128 Byte Key, use './main.py config create_key' to create a random key")
@@ -136,6 +136,7 @@ def check_requirements():
     if not os.path.isdir(cfg['local-enc-dir']):
         logger.error("'local-enc-dir' not specified or does not exist")
         sys.exit(0)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tape backup from remote or local server to tape library")
@@ -207,11 +208,10 @@ if __name__ == "__main__":
 
     subparser_db = subparsers.add_parser('db', help='Database operations')
     subsubparser_db = subparser_db.add_subparsers(title='Subcommands', dest='command_sub')
-    subsubparser_db.add_parser('init', help='Initialize SQLite DB')
     subsubparser_db.add_parser('repair', help='Repair SQLite DB after stopped operation')
-    subsubparser_db.add_parser('fix_timestamp', help='Fix float timestamps from program version < 0.1.0')
     subsubparser_db.add_parser('backup', help='Backup SQLite DB to given GIT repo')
     subsubparser_db.add_parser('status', help='Show SQLite Information')
+    subsubparser_db.add_parser('migrate', help='Migrate database from schema pre version 0.3')
 
     subparser_tape = subparsers.add_parser('tape', help='Tapelibrary operations')
     subsubparser_tape = subparser_tape.add_subparsers(title='Subcommands', dest='command_sub')
@@ -255,14 +255,20 @@ if __name__ == "__main__":
     if args.command != "db" and args.command != "config" and args.command != "debug":
         check_requirements()
     else:
-        if args.command_sub != "init" and args.command_sub != "create_key":
+        if args.command_sub != "create_key":
             check_requirements()
-        elif args.command_sub == "init" and os.path.isfile(cfg['database']):
-            logger.warning("Database file already exists. Just updating!")
 
-    database = Database(cfg)
-    tapelibrary = Tapelibrary(cfg, database)
-    tools = Tools(cfg, database)
+    # Init database
+    db_engine = database.init(cfg['database'], db_model_version)
+    if not db_engine:
+        if args.command == "db":
+            if args.command_sub != "migrate" and args.command_sub != "upgrade":
+                sys.exit(1)
+        else:
+            sys.exit(1)
+
+    tapelibrary = Tapelibrary(cfg)
+    tools = Tools(cfg)
 
     if args.command == 'debug':
         print_debug_info()
@@ -275,7 +281,7 @@ if __name__ == "__main__":
         logger.info("########## NEW SESSION ##########")
 
         from functions.files import Files
-        current_class = Files(cfg, database, tapelibrary, tools, args.local)
+        current_class = Files(cfg, db_engine, tapelibrary, tools, args.local)
         current_class.get()
 
     elif args.command == "encrypt":
@@ -284,7 +290,7 @@ if __name__ == "__main__":
         logger.info("########## NEW SESSION ##########")
 
         from functions.encryption import Encryption
-        current_class = Encryption(cfg, database, tapelibrary, tools, args.local)
+        current_class = Encryption(cfg, db_engine, tapelibrary, tools, args.local)
         current_class.encrypt()
 
     elif args.command == "write":
@@ -293,7 +299,7 @@ if __name__ == "__main__":
         logger.info("########## NEW SESSION ##########")
 
         from functions.tape import Tape
-        current_class = Tape(cfg, database, tapelibrary, tools)
+        current_class = Tape(cfg, db_engine, tapelibrary, tools)
         current_class.write()
 
     elif args.command == "verify":
@@ -302,7 +308,7 @@ if __name__ == "__main__":
         logger.info("########## NEW SESSION ##########")
 
         from functions.verify import Verify
-        current_class = Verify(cfg, database, tapelibrary, tools)
+        current_class = Verify(cfg, db_engine, tapelibrary, tools)
         if args.tape is None:
             current_class.file(args.file, args.count)
         elif args.file is None:
@@ -314,7 +320,7 @@ if __name__ == "__main__":
         logger.info("########## NEW SESSION ##########")
 
         from functions.restore import Restore
-        current_class = Restore(cfg, database, tapelibrary, tools)
+        current_class = Restore(cfg, db_engine, tapelibrary, tools)
 
         if args.command_sub == "start":
             if not args.files and args.filelist is None:
@@ -335,8 +341,12 @@ if __name__ == "__main__":
             subparser_restore.print_help()
 
     elif args.command == "files":
+        logger.info("Starting files operation, logging into logs/files.log")
+        change_logger_filehandler('files.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.files import Files
-        current_class = Files(cfg, database, tapelibrary, tools)
+        current_class = Files(cfg, db_engine, tapelibrary, tools)
 
         if args.command_sub == "list":
             current_class.list(args.files, args.verbose_list, args.tape)
@@ -348,6 +358,10 @@ if __name__ == "__main__":
             subparser_files.print_help()
 
     elif args.command == "log":
+        logger.info("Starting log operation, logging into logs/logging.log")
+        change_logger_filehandler('logging.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.log import Log
         current_class = Log(cfg)
 
@@ -357,8 +371,12 @@ if __name__ == "__main__":
             current_class.remove_debug(log_dir)
 
     elif args.command == "tape":
+        logger.info("Starting tape operation, logging into logs/tape.log")
+        change_logger_filehandler('tape.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.tape import Tape
-        current_class = Tape(cfg, database, tapelibrary, tools)
+        current_class = Tape(cfg, db_engine, tapelibrary, tools)
 
         if args.command_sub == "info":
             current_class.info()
@@ -368,14 +386,14 @@ if __name__ == "__main__":
             subparser_tape.print_help()
 
     elif args.command == "db":
+        logger.info("Starting db operation, logging into logs/db.log")
+        change_logger_filehandler('db.log')
+        logger.info("########## NEW SESSION ##########")
+
         from functions.db import Db
-        current_class = Db(cfg, database, tapelibrary, tools)
-        if args.command_sub == "init":
-            current_class.init()
-        elif args.command_sub == "repair":
+        current_class = Db(cfg, db_engine, tapelibrary, tools)
+        if args.command_sub == "repair":
             current_class.repair()
-        elif args.command_sub == "fix_timestamp":
-            current_class.fix_timestamp()
         elif args.command_sub == "status":
             current_class.status()
         elif args.command_sub == "backup":
@@ -383,6 +401,8 @@ if __name__ == "__main__":
                 logger.error("'database-backup-git-path' key is empty, please specify git path")
                 sys.exit(0)
             current_class.backup()
+        elif args.command_sub == "migrate":
+            current_class.migrate(db_model_version)
         elif args.command_sub is None:
             subparser_db.print_help()
 
@@ -397,6 +417,10 @@ if __name__ == "__main__":
         change_logger_filehandler('develop.log')
         logger.info("########## NEW SESSION ##########")
         logger.info("Test 123")
+
+        session = database.create_session(db_engine)
+        file = database.get_restore_job_stats_total(session, 1)
+
         ## For debugging / programming pruspose only
         #from functions.develop import Develop
 

@@ -1,611 +1,467 @@
-import sqlite3
+import datetime
 import logging
+import os
+import sqlite3
 import sys
 import time
-
-from sqlite3 import Error
+from sqlalchemy import create_engine, func, or_, and_
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.serializer import dumps
+from sqlalchemy.orm import sessionmaker
+from lib.models import Config, File, Tape, RestoreJob, RestoreJobFileMap
 
 logger = logging.getLogger()
 
 
+def connect(db_path):
+    engine = create_engine(f"sqlite:///{db_path}")
+    return engine
 
-class Database:
-    def __init__(self, config):
-        self.config = config
-        self.conn = self.create_connection(config['database'])
-        self.cursor = self.conn.cursor()
 
-    def create_tables(self):
-        sql_files = '''CREATE TABLE IF NOT EXISTS files (
-                    id INTEGER PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    path TEXT NOT NULL UNIQUE,
-                    filename_encrypted TEXT UNIQUE,
-                    mtime TEXT,
-                    filesize INT,
-                    encrypted_filesize INT,
-                    md5sum_file TEXT,
-                    md5sum_encrypted TEXT,
-                    tape TEXT,
-                    downloaded_date TEXT,
-                    encrypted_date TEXT,
-                    written_date TEXT,
-                    tapeposition INT,
-                    downloaded INT DEFAULT 0,
-                    encrypted INT DEFAULT 0,
-                    written INT DEFAULT 0,
-                    verified_count INT DEFAULT 0,
-                    verified_last TEXT,
-                    deleted INT DEFAULT 0
-                    );'''
+def create_tables(engine):
+    Config.__table__.create(bind=engine, checkfirst=True)
+    File.__table__.create(bind=engine, checkfirst=True)
+    Tape.__table__.create(bind=engine, checkfirst=True)
+    RestoreJob.__table__.create(bind=engine, checkfirst=True)
+    RestoreJobFileMap.__table__.create(bind=engine, checkfirst=True)
 
-        sql_tapedevice = '''CREATE TABLE IF NOT EXISTS tapedevices (
-                    id INTEGER PRIMARY KEY,
-                    label TEXT NOT NULL UNIQUE,
-                    full_date TEXT,
-                    files_count INT DEFAULT 0,
-                    end_of_data INT,
-                    full INT DEFAULT 0,
-                    verified_count INT DEFAULT 0,
-                    verified_last TEXT
-                    );'''
 
-        sql_alternative_file_names = '''CREATE TABLE IF NOT EXISTS alternative_file_names (
-                    id INTEGER PRIMARY KEY,
-                    filename TEXT NOT NULL,
-                    path TEXT NOT NULL UNIQUE,
-                    mtime TEXT,
-                    files_id INT NOT NULL,
-                    date TEXT ,
-                    deleted INT DEFAULT 0
-                    );'''
+def create_session(engine):
+    session = sessionmaker(bind=engine)
+    return session()
 
-        sql_updates_files = '''CREATE TABLE IF NOT EXISTS updated_files (
-                    id INTEGER PRIMARY KEY,
-                    files_id INT NOT NULL,
-                    filename TEXT NOT NULL,
-                    path TEXT NOT NULL,
-                    filename_encrypted TEXT UNIQUE,
-                    mtime TEXT,
-                    filesize INT,
-                    encrypted_filesize INT,
-                    md5sum_file TEXT,
-                    md5sum_encrypted TEXT,
-                    tape TEXT,
-                    downloaded_date TEXT,
-                    encrypted_date TEXT,
-                    written_date TEXT,
-                    downloaded INT DEFAULT 0,
-                    encrypted INT DEFAULT 0,
-                    written INT DEFAULT 0,
-                    verified_count INT DEFAULT 0,
-                    verified_last TEXT,
-                    deleted INT DEFAULT 0
-                    );'''
 
-        sql_restore_job = '''CREATE TABLE IF NOT EXISTS restore_job (
-                    id INTEGER PRIMARY KEY,
-                    startdate TEXT NOT NULL,
-                    finished TEXT DEFAULT NULL
-                    );'''
-
-        sql_restore_job_files = '''CREATE TABLE IF NOT EXISTS restore_job_files_map (
-                    id INTEGER PRIMARY KEY,
-                    restored INT DEFAULT 0,
-                    files_id INTEGER NOT NULL,
-                    restore_job_id INTEGER NOT NULL,
-                    FOREIGN KEY (files_id) REFERENCES files (id),
-                    FOREIGN KEY (restore_job_id) REFERENCES restore_job (id) ON DELETE CASCADE,
-                    UNIQUE (files_id, restore_job_id)
-                    );'''
-
-        try:
-            self.cursor.execute(sql_files)
-            self.cursor.execute(sql_tapedevice)
-            self.cursor.execute(sql_alternative_file_names)
-            self.cursor.execute(sql_updates_files)
-            self.cursor.execute(sql_restore_job)
-            self.cursor.execute(sql_restore_job_files)
-        except Error as e:
-            logger.error("Create tables failed:".format(e))
+def db_model_version_need_update(engine, session, db_version):
+    logger.debug("Check if database need upgrade")
+    if engine.dialect.has_table(engine, 'config'):
+        version = session.query(Config).filter(Config.name == 'version').first()
+        if int(version.value) != db_version:
+            logger.error(f"Database need manual upgrade, please run './main.py db upgrade' to upgrade from "
+                         f"{version.value} to {db_version}")
+            return True
+        else:
             return False
+    else:
+        logger.error(f"Database need migration from previous state, please run './main.py db migrate'")
         return True
 
-    def create_connection(self, db_file):
-        conn = None
+
+def init(db_path, db_version):
+    engine = connect(db_path)
+    session = create_session(engine)
+    if not os.path.exists(db_path):
+        logger.info("Creating database")
+        create_tables(engine)
+        insert_or_update_db_version(session, db_version)
+
+    if db_model_version_need_update(engine, session, db_version):
+        session.close()
+        return False
+
+    session.close()
+    return engine
+
+
+def insert_or_update_db_version(session, db_version):
+    version = session.query(Config).filter(Config.name == 'version').first()
+    if version is None:
+        version = Config(name='version')
+        session.add(version)
+
+    version.value = db_version
+    session.commit()
+
+
+def file_exists_by_path(session, relative_path):
+    """
+    Check if filename known in database
+    :param session: orm session
+    :param relative_path: relative file path
+    :return: Boolean if found
+    """
+    return session.query(File).filter(File.path == relative_path).first()
+
+
+def insert_file(session, filename, relative_path):
+    """
+    Create a new file entry
+    :param session: orm session
+    :param filename: file name
+    :param relative_path: relative file path
+    :return: inserted file id
+    """
+    file = File(filename=filename, path=relative_path)
+    session.add(file)
+    session.commit()
+    return file
+
+
+def get_file_by_md5(session, md5):
+    return session.query(File).filter(File.md5sum_file == md5).first()
+
+
+def commit(session):
+    try_count = 0
+    while True:
+        try_count += 1
         try:
-            conn = sqlite3.connect(db_file)
-        except Error as e:
-            print(e)
+            session.commit()
+            break
+        except OperationalError as error:
+            if try_count > 10:
+                logger.error(f"Database locked, giving up. ({try_count}/10). Error: {error}")
+                logger.error(f"Please run ./main.py db repair to remove stale entries!")
+                sys.exit(1)
+            else:
+                logger.warning(f"Database locked, waiting 5 seconds for next retry ({try_count}/10). Error: {error}")
+                time.sleep(5)
+        except sqlite3.OperationalError:
+            if try_count > 10:
+                logger.error(f"Database locked, giving up. ({try_count}/10). Error: {error}")
+                logger.error(f"Please run ./main.py db repair to remove stale entries!")
+                sys.exit(1)
+            else:
+                logger.warning(f"Database locked, waiting 5 seconds for next retry ({try_count}/10). Error: {error}")
+                time.sleep(5)
 
-        return conn
 
-    def fetchall_from_database(self, sql, data=()):
-        try_count = 0
-        while True:
-            try_count += 1
-            try:
-                self.cursor.execute(sql, data)
-                break
-            except sqlite3.OperationalError as e:
-                if try_count == 10:
-                    logger.warning("Database locked, giving up. ({}/10)".format(try_count))
-                    sys.exit(1)
-                else:
-                    logger.warning("Database locked, waiting 10s for next try. ({}/10) [{}]".format(try_count, e))
-                    time.sleep(10)
-        return self.cursor.fetchall()
+def update_file_after_download(session, file, filesize, mtime, downloaded_date, md5):
+    """
+    Update file object after download
+    :param session: orm session
+    :param file: file object
+    :param filesize:
+    :param mtime:
+    :param downloaded_date:
+    :param md5:
+    :return:
+    """
+    file.filesize = filesize
+    file.mtime = mtime
+    file.downloaded_date = downloaded_date
+    file.md5sum_file = md5
+    file.downloaded = True
 
-    def change_entry_in_database(self, sql, data):
-        try_count = 0
-        while True:
-            try_count += 1
-            try:
-                self.cursor.execute(sql, data)
-                self.conn.commit()
-                break
-            except sqlite3.OperationalError as e:
-                if try_count == 10:
-                    logger.warning("Database locked, giving up. ({}/10)".format(try_count))
-                    sys.exit(1)
-                else:
-                    logger.warning("Database locked, waiting 10s for next try. ({}/10) [{}]".format(try_count, e))
-                    time.sleep(10)
-        return self.cursor.lastrowid
+    commit(session)
 
-    def bulk_insert_entry_in_database(self, sql, data):
-        try_count = 0
-        while True:
-            try_count += 1
-            try:
-                self.cursor.executemany(sql, data)
-                self.conn.commit()
-                break
-            except sqlite3.OperationalError:
-                if try_count == 10:
-                    logger.warning("Database locked, giving up. ({}/10)".format(try_count))
-                    sys.exit(1)
-                else:
-                    logger.warning("Database locked, waiting 10s for next try. ({}/10)".format(try_count))
-                    time.sleep(10)
-        return True
 
-    def export(self, filename):
-        with open(filename, 'w') as f:
-            for line in self.conn.iterdump():
-                f.write('{}\n'.format(line))
+def update_duplicate_file_after_download(session, file, duplicate_file, mtime, downloaded_date):
+    """
+    Add an alternative file if file already exists(by md5sum)
+    :param session: orm session
+    :param file: file object
+    :param duplicate_file: file object of duplicate file with same md5sum
+    :param mtime: mtime of file
+    :param downloaded_date: downlodaded date of alternative file
+    :return: file object
+    """
+    file.duplicate_id = duplicate_file.id
+    file.mtime = mtime
+    file.downloaded_date = downloaded_date
 
-    def get_tables(self):
-        self.cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        rows = self.cursor.fetchall()
-        tables = []
-        for table in rows:
-            tables.append(table[0])
-        return tables
+    commit(session)
+    return file
 
-    def total_rows(self, table_name, print_out=False):
-        """ Returns the total number of rows in the database """
-        self.cursor.execute('SELECT COUNT(*) FROM {}'.format(table_name))
-        count = self.cursor.fetchall()
-        if print_out:
-            print('\nTotal rows: {}'.format(count[0][0]))
-        return count[0][0]
 
-    def table_col_info(self, table_name, print_out=False):
-        """ Returns a list of tuples with column informations:
-        (id, name, type, notnull, default_value, primary_key)
-        """
-        self.cursor.execute('PRAGMA TABLE_INFO({})'.format(table_name))
-        info = self.cursor.fetchall()
+def delete_broken_file(session, file):
+    session.delete(file)
+    commit(session)
 
-        if print_out:
-            print("\nColumn Info:\nID, Name, Type, NotNull, DefaultVal, PrimaryKey")
-            for col in info:
-                print(col)
-        return info
 
-    def values_in_col(self, table_name, print_out=True):
-        """ Returns a dictionary with columns as keys
-        and the number of not-null entries as associated values.
-        """
-        self.cursor.execute('PRAGMA TABLE_INFO({})'.format(table_name))
-        info = self.cursor.fetchall()
-        col_dict = dict()
+def get_all_files(session):
+    return session.query(File).all()
+
+
+def get_tables(session):
+    rows = session.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    return [table[0] for table in rows]
+
+
+def total_rows(session, table_name, print_out=False):
+    """ Returns the total number of rows in the database """
+    count = session.execute(f'SELECT COUNT(*) FROM {table_name}').fetchone()
+    if print_out:
+        print('Total rows: {}'.format(count[0]))
+    return count[0]
+
+
+def table_col_info(session, table_name, print_out=False):
+    """ Returns a list of tuples with column informations:
+    (id, name, type, notnull, default_value, primary_key)
+    """
+    info = session.execute(f'PRAGMA TABLE_INFO({table_name})').fetchall()
+
+    if print_out:
+        print("Column Info:\n    ID, Name, Type, NotNull, DefaultVal, PrimaryKey")
         for col in info:
-            col_dict[col[1]] = 0
-        for col in col_dict:
-            self.cursor.execute(f'SELECT ({col}) FROM {table_name} \
-                                  WHERE {col} IS NOT NULL')
-            # In my case this approach resulted in a
-            # better performance than using COUNT
-            number_rows = len(self.cursor.fetchall())
-            col_dict[col] = number_rows
-        if print_out:
-            print("\nNumber of entries per column:")
-            for i in col_dict.items():
-                print(f'{i[0]}: {i[1]}')
-        return col_dict
+            print(f"    {col}")
+    return info
 
-    def get_broken_db_download_entry(self):
-        sql = '''SELECT id, path FROM files
-                 WHERE downloaded = 0'''
-        return self.fetchall_from_database(sql)
 
-    def delete_broken_db_entry(self, id):
-        sql = '''DELETE from files
-                 WHERE id = ?'''
-        self.change_entry_in_database(sql, (id,))
+def values_in_col(session, table_name, print_out=True):
+    """ Returns a dictionary with columns as keys
+    and the number of not-null entries as associated values.
+    """
+    info = session.execute('PRAGMA TABLE_INFO({})'.format(table_name)).fetchall()
+    col_dict = dict()
+    for col in info:
+        col_dict[col[1]] = 0
+    for col in col_dict:
+        number_rows = len(session.execute(f'SELECT ({col}) FROM {table_name} \
+                              WHERE {col} IS NOT NULL').fetchall())
+        # In my case this approach resulted in a
+        # better performance than using COUNT
+        col_dict[col] = number_rows
+    if print_out:
+        print("Number of entries per column:")
+        for i in col_dict.items():
+            print(f'    {i[0]}: {i[1]}')
+    return col_dict
 
-    def get_broken_db_encrypt_entry(self):
-        sql = '''SELECT id, filename_encrypted FROM files
-                 WHERE filename_encrypted IS NOT NULL
-                 AND encrypted = 0'''
-        return self.fetchall_from_database(sql)
 
-    def get_all_files(self):
-        sql = 'SELECT * FROM files'
-        return self.fetchall_from_database(sql)
+def get_broken_db_download_entry(session):
+    return session.query(File).filter(File.duplicate_id.is_(None), File.downloaded.is_(False)).all()
 
-    def fix_float_timestamps(self, id, new_timestamp):
-        sql = 'UPDATE files SET mtime = ? WHERE id = ?'
-        return self.change_entry_in_database(sql, (new_timestamp, id))
 
-    def update_broken_db_encrypt_entry(self, id):
-        sql = '''UPDATE files
-                 SET filename_encrypted = NULL
-                 WHERE id = ?'''
-        self.change_entry_in_database(sql, (id,))
+def get_broken_db_encrypt_entry(session):
+    return session.query(File).filter(File.filename_encrypted.isnot(None), File.encrypted.is_(False)).all()
 
-    def check_if_file_exists_by_path(self, relpath):
-        """
-        Check if filename known in database
-        :param relpath:
-        :param filename:
-        :return: inserted file id
-        """
-        rows_files = self.fetchall_from_database(
-            'SELECT * FROM files WHERE path = ?',
-            (relpath,)
-        )
-        rows_alt_files = self.fetchall_from_database(
-            'SELECT * FROM alternative_file_names WHERE path = ?',
-            (relpath,)
-        )
 
-        if len(rows_files) == 0 and len(rows_alt_files) == 0:
-            return False
-        else:
-            return True
+def update_broken_db_encrypt_entry(session, file):
+    file.filename_encrypted = None
+    commit(session)
 
-    def insert_file(self, filename, relpath):
-        """
-        Create a new file entry
-        :param file:
-        :return: inserted file id
-        """
-        sql = '''INSERT INTO files (filename,path)
-                 VALUES (?,?)'''
-        return self.change_entry_in_database(sql, (filename, relpath))
 
-    def get_files_by_md5(self, md5):
-        sql = '''SELECT id FROM files
-                 WHERE md5sum_file = ?'''
-        return self.fetchall_from_database(sql, (md5,))
+def get_files_to_be_written(session):
+    return session.query(File).filter(
+        File.downloaded.is_(True),
+        File.encrypted.is_(True),
+        File.written.is_(False)
+    ).all()
 
-    def insert_alternative_file_names(self, filename, path, duplicate_id, downloaded_date):
-        sql = '''INSERT INTO alternative_file_names (filename,path,files_id,date)
-                 VALUES (?,?,?,?)'''
-        return self.change_entry_in_database(sql, (filename, path, duplicate_id, downloaded_date))
 
-    def update_file_after_download(self, filesize, mtime, downloaded_date, md5, downloaded, id):
-        sql = '''UPDATE files
-                 SET filesize = ?,
-                     mtime = ?,
-                     downloaded_date = ?,
-                     md5sum_file = ?,
-                     downloaded = ?
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (filesize, mtime, downloaded_date, md5, downloaded, id))
+def get_not_deleted_files(session):
+    return session.query(File).filter(File.deleted.is_(False)).all()
 
-    def get_files_to_be_encrypted(self):
-        sql = '''SELECT id, filename, path FROM files
-                 WHERE downloaded = 1
-                 AND encrypted = 0'''
-        return self.fetchall_from_database(sql)
 
-    def update_filename_enc(self, filename_enc, id):
-        sql = '''UPDATE files
-                 SET filename_encrypted = ?
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (filename_enc, id,))
+def set_file_deleted(session, file):
+    file.deleted = True
+    commit(session)
 
-    def update_file_after_encrypt(self, filesize, encrypted_date, md5sum_encrypted, id):
-        sql = '''UPDATE files
-                 SET encrypted_filesize = ?,
-                     encrypted_date = ?,
-                     md5sum_encrypted = ?,
-                     encrypted = 1
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (filesize, encrypted_date, md5sum_encrypted, id))
 
-    def get_full_tape(self, label):
-        sql = '''SELECT id, label, full FROM tapedevices
-                 WHERE label = ?
-                 AND full = 1'''
-        return self.fetchall_from_database(sql, (label,))
+def get_file_count(session):
+    return session.query(File.id).count()
 
-    def get_full_tapes(self):
-        sql = '''SELECT label FROM tapedevices
-                 WHERE full = 1'''
-        return self.fetchall_from_database(sql)
 
-    def get_used_tapes(self, label):
-        sql = '''SELECT id, label, full FROM tapedevices
-                 WHERE label = ?
-                 AND full = 0'''
-        return self.fetchall_from_database(sql, (label,))
+def get_min_file_size(session):
+    return session.query(func.min(File.filesize)).first()[0]
 
-    def write_tape_into_database(self, label):
-        sql = '''INSERT OR IGNORE INTO tapedevices (label)
-                 VALUES (?)'''
-        return self.change_entry_in_database(sql, (label,))
 
-    def get_files_to_be_written(self):
-        sql = '''SELECT id,
-                         filename_encrypted,
-                         filename,
-                         encrypted_filesize
-                 FROM files
-                 WHERE downloaded = 1
-                 AND encrypted = 1
-                 AND written = 0'''
-        return self.fetchall_from_database(sql)
+def get_max_file_size(session):
+    return session.query(func.max(File.filesize)).first()[0]
 
-    def get_filecount_by_tapelabel(self, label):
-        sql = '''SELECT count(*) FROM files
-                 WHERE tape = ?'''
-        return self.fetchall_from_database(sql, (label,))
 
-    def get_files_by_tapelabel(self, label):
-        sql = '''SELECT id,
-                        filename,
-                        path,
-                        filesize,
-                        md5sum_encrypted,
-                        filename_encrypted,
-                        tapeposition
-                 FROM files
-                 WHERE tape = ?
-                 ORDER BY tapeposition'''
-        return self.fetchall_from_database(sql, (label,))
+def get_total_file_size(session):
+    return session.query(func.sum(File.filesize)).first()[0]
 
-    def mark_tape_as_full(self, label, dt):
-        count = self.get_filecount_by_tapelabel(label)[0][0]
-        sql = '''UPDATE tapedevices
-                 SET full_date = ?,
-                     files_count = ?,
-                     full = 1
-                 WHERE label = ?'''
-        return self.change_entry_in_database(sql, (dt, count, label))
 
-    def update_file_after_write(self, dt, label, did, tape_position):
-        sql = '''UPDATE files
-                 SET written_date = ?,
-                     tape = ?,
-                     written = 1,
-                     tapeposition = ?
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (dt, label, tape_position, did))
+def list_duplicates(session):
+    return session.query(File).filter(File.duplicate_id.isnot(None)).all()
 
-    def list_duplicates(self):
-        sql = '''SELECT files.path,
-                        files.mtime,
-                        alternative_file_names.path,
-                        files.filesize
-                 FROM files, alternative_file_names
-                 WHERE files.id = alternative_file_names.files_id'''
-        return self.fetchall_from_database(sql)
 
-    def filename_encrypted_already_used(self, filename_encrypted):
-        sql = '''SELECT id FROM files
-                 WHERE filename_encrypted = ?'''
-        if len(self.fetchall_from_database(sql, (filename_encrypted,))) > 0:
-            return True
-        else:
-            return False
+def get_files_to_be_encrypted(session):
+    return session.query(File).filter(File.downloaded.is_(True), File.encrypted.is_(False)).all()
 
-    def dump_filenames_to_for_tapes(self, label):
-        sql = '''SELECT id, path, filename_encrypted FROM files
-                 WHERE tape = ?'''
-        return self.fetchall_from_database(sql, (label,))
 
-    def get_minimum_verified_count(self):
-        sql = 'SELECT MIN(verified_count) FROM files LIMIT 1'
-        return self.fetchall_from_database(sql)
+def filename_encrypted_already_used(session, filename_encrypted):
+    if len(session.query(File).filter(File.filename_encrypted == filename_encrypted).all()) > 0:
+        return True
+    else:
+        return False
 
-    def get_ids_by_verified_count(self, verified_count):
-        sql = '''SELECT id, filename, filename_encrypted, tape FROM files
-                 WHERE tape NOT NULL
-                 AND verified_count = ?'''
-        return self.fetchall_from_database(sql, (verified_count,))
 
-    def get_not_deleted_files(self):
-        sql = '''SELECT id, path FROM files
-                 WHERE deleted != 1'''
-        return self.fetchall_from_database(sql)
+def update_filename_enc(session, id, filename_enc):
+    file = session.query(File).filter(File.id == id).first()
+    file.filename_encrypted = filename_enc
+    commit(session)
+    return file
 
-    def get_not_deleted_alternative_files(self):
-        sql = '''SELECT id, path FROM alternative_file_names
-                 WHERE deleted != 1'''
-        return self.fetchall_from_database(sql)
 
-    def set_file_deleted(self, fileid):
-        sql = '''UPDATE files
-                 SET deleted = 1
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (fileid,))
+def update_file_after_encrypt(session, file, filesize, encrypted_date, md5sum_encrypted):
+    file.filesize_encrypted = filesize
+    file.encrypted_date = encrypted_date
+    file.md5sum_encrypted = md5sum_encrypted
+    file.encrypted = True
+    commit(session)
 
-    def set_file_alternative_deleted(self, fileid):
-        sql = '''UPDATE alternative_file_names
-                 SET deleted = 1
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (fileid,))
 
-    def get_file_count(self):
-        sql = '''SELECT (SELECT count(*) FROM files WHERE deleted != 1)
-                 + (SELECT count(*) FROM alternative_file_names WHERE deleted != 1)
-                 AS total_rows'''
-        return self.fetchall_from_database(sql)[0][0]
+def get_full_tapes(session):
+    return session.query(Tape).filter(Tape.full.is_(True)).all()
 
-    def get_min_file_size(self):
-        sql = '''SELECT MIN(filesize) FROM files WHERE deleted != 1'''
-        return self.fetchall_from_database(sql)[0][0]
 
-    def get_max_file_size(self):
-        sql = '''SELECT MAX(filesize) FROM files WHERE deleted != 1'''
-        return self.fetchall_from_database(sql)[0][0]
+def write_tape_into_database(session, label):
+    if session.query(Tape).filter(Tape.label == label).first() is None:
+        tape = Tape(label=label)
+        session.add(tape)
+        commit(session)
 
-    def get_total_file_size(self):
-        sql = '''SELECT SUM(filesize) FROM files WHERE deleted != 1'''
-        return self.fetchall_from_database(sql)[0][0]
 
-    def get_end_of_data_by_tape(self, tag):
-        sql = '''SELECT end_of_data from tapedevices WHERE label = ?'''
-        return self.fetchall_from_database(sql, (tag,))[0][0]
+def get_end_of_data_by_tape(session, label):
+    return session.query(Tape.end_of_data).filter(Tape.label == label).first()
 
-    def update_tape_end_position(self, label, tape_position):
-        count = self.get_filecount_by_tapelabel(label)[0][0]
-        sql = '''UPDATE tapedevices
-                 SET end_of_data = ?
-                 WHERE label = ?'''
-        return self.change_entry_in_database(sql, (tape_position, label))
 
-    def add_restore_job(self):
-        date = int(time.time())
-        sql = '''INSERT INTO restore_job (startdate)
-                 VALUES (?)'''
-        return self.change_entry_in_database(sql, (date,))
+def get_files_by_tapelabel(session, label):
+    return session.query(File).join(Tape).filter(Tape.label == label).all()
 
-    def add_restore_job_files(self, jobid, fileids):
-        sql = '''INSERT OR IGNORE INTO restore_job_files_map (files_id, restore_job_id)
-                 VALUES (?,?)'''
-        return self.bulk_insert_entry_in_database(sql, ((id, jobid) for id in fileids))
 
-    def delete_restore_job(self, id):
-        sql = '''DELETE FROM restore_job
-                 WHERE id = ?'''
-        self.change_entry_in_database(sql, (id,))
+def revert_written_to_tape_by_label(session, label):
+    # Use with caution! This will remove written and tape dependencies from all files attached to given label
+    for file in get_files_by_tapelabel(session, label):
+        file.written = False
+        file.written_date = None
+        file.tape_id = None
+        commit(session)
 
-    def get_restore_job_stats_total(self, jobid=None):
-        sql = '''SELECT a.id,
-                        a.startdate,
-                        a.finished,
-                        COUNT(b.files_id),
-                        SUM(c.filesize),
-                        COUNT(DISTINCT c.tape)
-                 FROM restore_job a
-                 LEFT JOIN restore_job_files_map b ON b.restore_job_id = a.id
-                 LEFT JOIN files c ON c.id = b.files_id
-                 WHERE {}
-                 GROUP BY a.id {}'''
-        if jobid is not None:
-            sql = sql.format(f'a.id = {jobid}', '')
-        else:
-            sql = sql.format('true', 'ORDER BY a.id DESC LIMIT 1')
-        return self.fetchall_from_database(sql)
 
-    def get_restore_job_stats_remaining(self, jobid=None):
-        sql = '''SELECT a.id,
-                        a.startdate,
-                        a.finished,
-                        count(b.files_id),
-                        sum(c.filesize),
-                        count(DISTINCT c.tape)
-                 FROM restore_job a
-                 LEFT JOIN restore_job_files_map b ON b.restore_job_id = a.id
-                 LEFT JOIN files c ON c.id = b.files_id
-                 WHERE b.restored = 0 AND {}
-                 GROUP BY a.id {}'''
-        if jobid is not None:
-            sql = sql.format(f'a.id = {jobid}', '')
-        else:
-            sql = sql.format('true', 'ORDER BY a.id DESC LIMIT 1')
-        return self.fetchall_from_database(sql)
+def update_file_after_write(session, file, dt, label, tape_position=None):
+    tape = session.query(Tape).filter(Tape.label == label).first()
+    file.written_date = dt
+    file.tape_id = tape.id
+    file.written = True
+    file.tapeposition = tape_position
+    commit(session)
 
-    def set_restore_job_finished(self, jobid):
-        sql = '''UPDATE restore_job
-                 SET finished = strftime('%s', 'now')
-                 WHERE id = ?'''
-        return self.change_entry_in_database(sql, (jobid,))
 
-    def get_latest_restore_job(self):
-        sql = 'SELECT id, startdate FROM restore_job ORDER BY id DESC LIMIT 1'
-        res = self.fetchall_from_database(sql)
-        if res:
-            return res[0][0], res[0][1]
-        else:
-            return None, None
+def update_tape_end_position(session, label, tape_position):
+    tape = session.query(Tape).filter(Tape.label == label).first()
+    tape.end_of_data = tape_position
+    commit(session)
 
-    def get_restore_job_files(self, jobid, tapes=None, restored=False):
-        if tapes:
-            tape_sql = ' OR '.join(['tape = ?'] * len(tapes))
-            args = (jobid, *tapes)
-        else:
-            tape_sql = 'true'
-            args = (jobid,)
 
-        # only print non-restored files if restored is False
-        restored_sql = 'AND a.restored = 0' if not restored else ''
+def mark_tape_as_full(session, label, dt, count):
+    tape = session.query(Tape).filter(Tape.label == label).first()
+    tape.full_date = dt
+    tape.full = True
+    tape.files_count = count
+    commit(session)
 
-        sql = f'''SELECT files_id,
-                         filename,
-                         path,
-                         filesize,
-                         tape,
-                         restored,
-                         filename_encrypted
-                  FROM restore_job_files_map a
-                  LEFT JOIN files b ON b.id = a.files_id
-                  WHERE restore_job_id = ? AND ({tape_sql}) {restored_sql}'''
 
-        return self.fetchall_from_database(sql, args)
+def get_full_tape(session, label):
+    return session.query(Tape).filter(Tape.label == label, Tape.full.is_(True)).first()
 
-    def get_files_like(self, likes=[], tape=None, items=[], written=False):
-        return self.get_files_by_path(likes, tape, items, file_compare='path like ?', written=written)
 
-    def get_files_by_path(self, files=[], tape=None, items=[], file_compare='path = ?', written=False):
-        if files:
-            where_files = ' or '.join([file_compare] * len(files))
-        else:
-            where_files = 'true'
+def add_restore_job(session):
+    job = RestoreJob(startdate=datetime.datetime.now())
+    session.add(job)
+    commit(session)
 
-        if items:
-            items_sql = ','.join(items)
-        else:
-            items_sql = '*'
 
-        sql = f'SELECT {items_sql} FROM files WHERE ({where_files})'
+def add_restore_job_files(session, jobid, fileids):
+    for i in fileids:
+        job = RestoreJobFileMap(file_id=i, restore_job_id=jobid)
+        session.add(job)
+    commit(session)
 
-        if tape is not None:
-            sql += ' AND tape = ?'
-            files += [tape]
 
-        if written:
-            sql += ' AND written=1'
+def get_restore_job_files(session, jobid, tapes=None, restored=False):
+    filters = ()
+    if tapes is not None:
+        for tape in tapes:
+            filters += (Tape.label == tape,)
 
-        return self.fetchall_from_database(sql, files)
+    if restored:
+        files = session.query(File).join(RestoreJobFileMap).join(Tape).filter(
+                    RestoreJobFileMap.restore_job_id == jobid,
+                    or_(*filters)
+                ).all()
+    else:
+        files = session.query(File).join(RestoreJobFileMap).join(Tape).filter(
+            RestoreJobFileMap.restore_job_id == jobid,
+            RestoreJobFileMap.restored == restored,
+            or_(*filters)
+        ).all()
 
-    def set_file_restored(self, restore_id, file_id):
-        sql = '''UPDATE restore_job_files_map
-                 SET restored = 1
-                 WHERE restore_job_id = ? AND files_id = ?'''
-        return self.change_entry_in_database(sql, (restore_id, file_id))
+    return files
 
-    def revert_written_to_tape_by_label(self, label):
-        # Use with caution! This will remove written and tape dependencies from all files attached to given label
-        sql = '''UPDATE files
-                 SET written = 0,
-                 written_date = NULL,
-                 tape = NULL
-                 WHERE tape = ?'''
-        return self.change_entry_in_database(sql, (label,))
+
+def set_file_restored(session, restore_id, file_id):
+    job_map = session.query(RestoreJobFileMap).filter(RestoreJobFileMap.restore_job_id, RestoreJobFileMap.file_id).first()
+    job_map.restored = True
+    commit(session)
+
+
+def set_restore_job_finished(session, jobid):
+    job = session.query(RestoreJob).filter(RestoreJob.id == jobid).first()
+    job.finished = datetime.datetime.now()
+    commit(session)
+
+
+def get_latest_restore_job(session):
+    return session.query(RestoreJob).order_by(RestoreJob.id.desc()).first()
+
+
+def delete_restore_job(session, id):
+    session.query(RestoreJob).filter(RestoreJob.id == id).delete()
+    commit(session)
+
+
+def get_restore_job_stats_remaining(session, jobid=None):
+    if jobid is None:
+        jobid = get_latest_restore_job(session)
+
+    job = session.query(
+        RestoreJob.id,
+        RestoreJob.startdate,
+        func.count(RestoreJobFileMap.id),
+        func.sum(File.filesize),
+        func.count(File.tape_id.distinct())
+    ).join(
+        RestoreJobFileMap, RestoreJobFileMap.restore_job_id == RestoreJob.id
+    ).join(
+        File, RestoreJobFileMap.file_id == File.id
+    ).filter(RestoreJob.id == jobid, RestoreJobFileMap.restored == False).first()
+
+    return job
+
+
+def get_restore_job_stats_total(session, jobid=None):
+    if jobid is None:
+        jobid = get_latest_restore_job(session)
+
+    job = session.query(
+        RestoreJob.id,
+        RestoreJob.startdate,
+        func.count(RestoreJobFileMap.id),
+        func.sum(File.filesize),
+        func.count(File.tape_id.distinct())
+    ).join(
+        RestoreJobFileMap, RestoreJobFileMap.restore_job_id == RestoreJob.id
+    ).join(
+        File, RestoreJobFileMap.file_id == File.id
+    ).filter(RestoreJob.id == jobid).first()
+
+    return job
+
+
+def get_files_like(session, filelist=[], tape=None, written=False):
+    tape_filters = ()
+    file_filters = ()
+    if tape is not None:
+        tape_filters += (Tape.label == tape,)
+
+    for file in filelist:
+        file_filters += (File.path.contains(file),)
+
+    if written:
+        files = session.query(File).join(Tape).filter(
+            or_(*tape_filters),
+            or_(*file_filters),
+            File.written.is_(True)
+        ).all()
+    else:
+        files = session.query(File).join(Tape).filter(
+            or_(*tape_filters),
+            and_(*file_filters)
+        ).all()
+
+    return files

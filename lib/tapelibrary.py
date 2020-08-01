@@ -5,15 +5,17 @@ import sys
 import os
 import time
 
+from lib import database
+
 logger = logging.getLogger()
 
 
 class Tapelibrary:
-    def __init__(self, config, database):
+    def __init__(self, config):
         self.config = config
-        self.database = database
+        #self.database = database
 
-    def get_tapes_tags_from_library(self):
+    def get_tapes_tags_from_library(self, session):
         time_started = time.time()
         logger.debug("Retrieving current tape tags in library")
         commands = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
@@ -42,14 +44,14 @@ class Tapelibrary:
                 if not lto_whitelist:
                     if tag in self.config['lto-blacklist']:
                         logger.debug('Ignore Tag {} because exists in ignore list in config'.format(tag))
-                    elif len(self.database.get_full_tape(tag)) > 0:
+                    elif database.get_full_tape(session, tag) is not None:
                         logger.debug('Ignore Tag {} because exists in database and is full'.format(tag))
                         tags_to_remove_from_library.append(tag)
                     else:
                         tag_in_tapelib.append(tag)
                 else:
                     ### If whitelisting is in use
-                    if tag in self.config['lto-whitelist'] and len(self.database.get_full_tape(tag)) > 0:
+                    if tag in self.config['lto-whitelist'] and len(database.get_full_tape(session, tag)) > 0:
                         logger.debug('Ignore Tag {} because exists in lto-whitelist, database and is full'.format(tag))
                         tags_to_remove_from_library.append(tag)
                     elif tag in self.config['lto-whitelist']:

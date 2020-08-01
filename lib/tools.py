@@ -16,9 +16,9 @@ from pathlib import Path
 logger = logging.getLogger()
 
 class Tools:
-    def __init__(self, config, database):
+    def __init__(self, config, ):
         self.config = config
-        self.database = database
+        #self.database = database
         self.alphabet = string.ascii_letters + string.digits
 
     @staticmethod
@@ -94,7 +94,7 @@ class Tools:
         return total
 
     def calculate_over_max_storage_usage(self, new_file_size):
-        if self.config['max_storage_usage'] == '' or self.config['max_storage_usage'] == None:
+        if self.config['max_storage_usage'] == '' or self.config['max_storage_usage'] is None:
             return False
         current_size = self.folder_size(self.config['local-data-dir']) \
                        + self.folder_size(self.config['local-enc-dir']) \
@@ -122,9 +122,17 @@ class Tools:
     def wildcard_to_sql(string):
         return string.replace('*', '%')
 
+    @staticmethod
+    def wildcard_to_sqlalchemy(string):
+        return string.replace('*', '')
+
     @classmethod
     def wildcard_to_sql_many(cls, strings):
-        return [cls.wildcard_to_sql(s) for s in strings]
+        return [cls.wildcard_to_sql(s) for s in strings]\
+
+    @classmethod
+    def wildcard_to_sql_many_sqlalchemy(cls, strings):
+        return [cls.wildcard_to_sqlalchemy(s) for s in strings]
 
     @staticmethod
     def table_format_entry(format, file):
@@ -140,15 +148,14 @@ class Tools:
     def order_by_startblock(self, files):
         start_and_files = list()
         for file in files:
-            filename_encrypted = file[5]
-            src = Path(self.config['local-tape-mount-dir']) / filename_encrypted
+            src = Path(self.config['local-tape-mount-dir']) / file.filename_encrypted
 
             try:
                 start_str = xattr.getxattr(src.resolve(), 'ltfs.startblock')
                 start = int(start_str)
             except OSError as e:
                 if e.errno == errno.ENODATA:
-                    logging.debug(f'No xattrs available for {filename_encrypted}, falling back to inode ordering')
+                    logging.debug(f'No xattrs available for {file.filename_encrypted}, falling back to inode ordering')
                     stat_result = src.stat()
                     start = stat_result.st_ino
                 else:
@@ -170,8 +177,8 @@ class Tools:
         cur_space = 0
         count = 0
         for file in filelist:
-            if (cur_space + file[3]) < free_space:
-                cur_space += file[3]
+            if (cur_space + file.filesize) < free_space:
+                cur_space += file.filesize
                 count += 1
             else:
                 return count

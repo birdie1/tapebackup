@@ -1,5 +1,7 @@
-## Max Threads use (right now only in 'get' module)
-threads: 4
+## Max Threads use (right now only in 'get' and 'encrypt' module)
+threads:
+  get: 8
+  encrypt: 2
 
 ## Specify taped that are not allowed to use
 ## CAUTION: Applies only if 'lto-whitelist' is empty
@@ -69,6 +71,7 @@ restore-dir: "/mnt/restore"
 ## Specify if you want to keep some free space on the written tapes.
 ## Useful if you have an head error and can't write the last x percent of every tape.
 ## Use Number[Unit] (K/M/G/T/P/E or nothing for Byte) or percent
+## CAUTION: There should be a minimum of free space to store the database on tape (We suggest 10G!)
 #keep-free: "5%"
 #keep-free: 100G
-tape-keep-free: 0
+tape-keep-free: 10G

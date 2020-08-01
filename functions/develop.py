@@ -3,9 +3,10 @@ import sys
 import os
 import subprocess
 import threading
+from lib import database
 from tabulate import tabulate
 from datetime import datetime
-from lib.database import Database
+
 
 logger = logging.getLogger()
 
