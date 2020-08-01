@@ -140,6 +140,8 @@ class Files:
         if given_file is not None:
             logger.info(f"Taking filelist from given file {given_file}")
             result = self.get_remote_filelist_fom_file(given_file)
+            data_dir = self.config['remote-data-dir']
+            base_dir = self.config['remote-base-dir']
         else:
             if self.local_files:
                 logger.info(f"Retrieving file list from server LOCAL directory "
