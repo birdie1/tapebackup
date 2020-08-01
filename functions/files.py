@@ -31,7 +31,6 @@ class Files:
     def set_interrupted(self):
         self.interrupted = True
 
-
     def get_remote_filelist(self):
         return_list = []
         count = 0
@@ -61,6 +60,10 @@ class Files:
             logger.debug(f"Execution Time: Building filelist: {time.time() - time_started} seconds")
             return return_list
 
+    def get_remote_filelist_fom_file(self, file):
+        with open(file) as f:
+            lines = f.read().splitlines()
+        return lines
 
     def get_thread(self, threadnr, relpath, fullpath):
         """
@@ -128,25 +131,30 @@ class Files:
         self.active_threads.remove(threadnr)
         thread_session.close()
 
-    def get(self):
+    def get(self, given_file=None):
         """
         Get files from remote server or add local files into database
+        :param given_file: Filename to read list of files from, otherwise it will be retrieved via find
         :return: Nothing
         """
-        if self.local_files:
-            logger.info(
-                "Retrieving file list from server LOCAL directory '{}'".format(os.path.abspath(self.config['local-data-dir'])))
-            result = self.tools.ls_recursive(os.path.abspath(self.config['local-data-dir']))
-            data_dir = self.config['local-data-dir']
-            base_dir = self.config['local-base-dir']
+        if given_file is not None:
+            logger.info(f"Taking filelist from given file {given_file}")
+            result = self.get_remote_filelist_fom_file(given_file)
         else:
-            result = self.get_remote_filelist()
-            data_dir = self.config['remote-data-dir']
-            base_dir = self.config['remote-base-dir']
+            if self.local_files:
+                logger.info(f"Retrieving file list from server LOCAL directory "
+                            f"{os.path.abspath(self.config['local-data-dir'])}")
+                result = self.tools.ls_recursive(os.path.abspath(self.config['local-data-dir']))
+                data_dir = self.config['local-data-dir']
+                base_dir = self.config['local-base-dir']
+            else:
+                result = self.get_remote_filelist()
+                data_dir = self.config['remote-data-dir']
+                base_dir = self.config['remote-base-dir']
 
         file_count_total = len(result)
         file_count_current = 0
-        logger.info("Found {} entries. Start to process.".format(file_count_total))
+        logger.info(f"Found {file_count_total} entries. Start to process.")
 
         for fpath in result:
             # Check if max-storage-size from config file is reached
@@ -161,7 +169,7 @@ class Files:
                 continue
             fullpath = fpath.strip()
             relpath = self.tools.strip_base_path(fullpath, base_dir)
-            logger.debug("Processing {}".format(fullpath))
+            logger.debug(f"Processing {fullpath}")
 
             if database.file_exists_by_path(self.session, relpath) is None:
                 # Get next thread id
@@ -169,7 +177,8 @@ class Files:
                     if i not in self.active_threads:
                         next_thread = i
                         break
-                logger.info("Starting Thread #{}, processing ({}/{}): {}".format(next_thread, file_count_current, file_count_total, fullpath))
+                logger.info(f"Starting Thread #{next_thread}, processing "
+                            f"({file_count_current}/{file_count_total}): {fullpath}")
 
                 self.active_threads.append(next_thread)
                 x = threading.Thread(target=self.get_thread,
@@ -181,7 +190,7 @@ class Files:
                     time.sleep(0.2)
 
             else:
-                logger.debug("File already downloaded, skipping {}".format(relpath))
+                logger.debug(f"File already downloaded, skipping {relpath}")
                 self.skipped_count += 1
 
             if self.interrupted:
@@ -195,10 +204,10 @@ class Files:
             files = database.get_not_deleted_files(self.session)
             for file in files:
                 ## Only look for files in the data path (then you can still specify subfolder instead of syncing all)
-                if data_dir in "{}/{}".format(base_dir, file.path):
+                if data_dir in f"{base_dir}/{file.path}":
                     still_exists = False
                     for fpath in result:
-                        if fpath.strip() == "{}/{}".format(base_dir, file.path):
+                        if fpath.strip() == f"{base_dir}/{file.path}":
                             still_exists = True
                             break
 

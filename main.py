@@ -164,6 +164,7 @@ if __name__ == "__main__":
 
     subparsers = parser.add_subparsers(title='Commands', dest='command')
     subparser_get = subparsers.add_parser('get', help='Get Files from remote Server')
+    subparser_get.add_argument('-f', '--file', type=str, help='Take filelist from file (one file per line -> full path), instead of building filelist itself')
     subparser_encrypt = subparsers.add_parser('encrypt',
                                               help='Enrypt files and build directory for one tape media size')
     subparser_write = subparsers.add_parser('write', help='Write directory into')
@@ -282,7 +283,7 @@ if __name__ == "__main__":
 
         from functions.files import Files
         current_class = Files(cfg, db_engine, tapelibrary, tools, args.local)
-        current_class.get()
+        current_class.get(args.file)
 
     elif args.command == "encrypt":
         logger.info("Starting encrypt operation, logging into logs/encrypt.log")
