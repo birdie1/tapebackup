@@ -311,7 +311,7 @@ def get_end_of_data_by_tape(session, label):
 
 
 def get_files_by_tapelabel(session, label):
-    return session.query(File).filter(File.tape.label == label).all()
+    return session.query(File).join(Tape).filter(Tape.label == label).all()
 
 
 def revert_written_to_tape_by_label(session, label):

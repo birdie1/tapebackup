@@ -68,19 +68,19 @@ class Tape:
         print(f"Please remove following tapes from library ({len(tapes_to_remove)}): {tapes_to_remove}")
 
     def filecount_from_verify_files_config(self, filelist):
-        if type(self.config['verify-files']) == int:
-            return self.config['verify-files']
-        else:
+        if "%" in self.config['verify-files']:
             return int(len(filelist) * int(self.config['verify-files'][0:self.config['verify-files'].index("%")]) / 100)
+        else:
+            return int(self.config['verify-files'])
 
     def test_backup_pieces_ltfs(self, filelist, filecount_to_test):
         logger.info(f"Testing {filecount_to_test} files md5sum")
-
+        
         files = self.tools.order_by_startblock(random.choices(filelist, k=filecount_to_test))
 
         for file in files:
             logger.info(f"Testing md5sum of file {file.filename}")
-            if self.tools.md5sum(f"{self.config['local-tape-mount-dir']}/{filename_encrypted}") != file.md5sum_encrypted:
+            if self.tools.md5sum(f"{self.config['local-tape-mount-dir']}/{file.filename_encrypted}") != file.md5sum_encrypted:
                 logger.info(f"md5sum of {file.id}:{file.filename} is wrong: exiting!")
                 return False
 
@@ -90,7 +90,7 @@ class Tape:
 
     def test_backup_pieces_tar(self, filelist, filecount_to_test):
         logger.info("Testing {} files md5sum".format(filecount_to_test))
-
+        
         files = sorted(random.choices(filelist, k=filecount_to_test), key=lambda i: i.tapeposition)
 
         for file in files:
@@ -196,9 +196,9 @@ class Tape:
         dt = int(time.time())
         command = ['openssl', 'enc', '-aes-256-cbc', '-pbkdf2', '-iter', '100000', '-in', self.config['database'],
                    '-out', f"{self.config['local-tape-mount-dir']}/tapebackup_{dt}.db.enc", '-k', self.config['enc-key']]
-        openssl = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        openssl = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if openssl.returncode != 0:
-            logger.error("Writing Database to Tape failed")
+            logger.error(f"Writing Database to Tape failed, stdout: {openssl.stdout}, stderr: {openssl.stderr}")
             return False
 
         ## WRITE Textfile containing (encryped_name|original_fullpath) of all files encrypted to tape
@@ -209,7 +209,7 @@ class Tape:
                    '-out', f"{self.config['local-tape-mount-dir']}/tapebackup_{dt}.txt.enc", '-k', self.config['enc-key']]
         openssl = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if openssl.returncode != 0:
-            logger.error("Writing Textfile to Tape failed")
+            logger.error(f"Writing Textfile to Tape failed, stdout: {openssl.stdout}, stderr: {openssl.stderr}")
             return False
         os.remove(f"tapebackup_{dt}.txt")
         logger.debug(f"Execution Time: Encrypt and write databse to tape: {time.time() - time_started} seconds")
