@@ -187,7 +187,8 @@ if __name__ == "__main__":
     subparser_restore_start.add_argument('-l', '--filelist', type=str, help='Read paths from file list to restore')
     subparser_restore_start.add_argument('files', nargs='*', help='Select files by absolute path or with wildcard')
     subparser_restore_continue = subparser_restore_sub.add_parser('continue', help='Restore job will be continued')
-    subparser_restore_continue.add_argument('jobid', nargs='?', help='Display status of specific restore job')
+    subparser_restore_continue.add_argument('-s', '--skip-tapes', nargs='+', default=[], help='Skip tapes during restore')
+    subparser_restore_continue.add_argument('jobid', type=int, nargs='?', help='Continue a specific restore job')
     subparser_restore_abort = subparser_restore_sub.add_parser('abort', help='Abort restore (delete from transactions db table)')
     subparser_restore_abort.add_argument('jobid', nargs='?', help='Display status of specific restore job')
     subparser_restore_sub.add_parser('list', help='List restore jobs')
@@ -333,7 +334,7 @@ if __name__ == "__main__":
             else:
                 current_class.start(args.files, tape=args.tape, filelist=args.filelist)
         elif args.command_sub == "continue":
-            current_class.cont()
+            current_class.cont(jobid=args.jobid, skip_tapes=args.skip_tapes)
         elif args.command_sub == "abort":
             current_class.abort(args.jobid)
         elif args.command_sub == "status":
@@ -422,13 +423,26 @@ if __name__ == "__main__":
         logger.info("Test 123")
 
         session = database.create_session(db_engine)
-        #file = database.get_restore_job_stats_total(session, 1)
 
-        from lib import models
-        get_foo = session.query(models.Tape).first()
-        get_foo2 = session.query(models.File).first()
-        print(get_foo)
-        print(get_foo2)
+        file = database.get_restore_job_stats_total(session, 1)
+        # from lib import models
+        # get_foo = session.query(models.Tape).first()
+        # get_foo2 = session.query(models.File).first()
+        # print(get_foo)
+        # print(get_foo2)
+
+        job = database.get_latest_restore_job(session)
+        # print(job)
+
+        with open("tmp-restored-until-now.txt", "r") as f:
+            files = [l.strip() for l in f.readlines()]
+        # files = ["Videos/Filme HD/Inglorious Bastards (1978, 1920x1056, de-ac3, en-ac3).mkv"]
+        db_files = database.get_files_like(session, files, tape=None, written=True)
+        # print(f"{db_files} ids {','.join((str(f.id) for f in db_files))}")
+        print(f"loaded {len(db_files)} files")
+
+        for file in db_files:
+            database.set_file_restored(session, job.id, file.id)
 
         ## For debugging / programming pruspose only
         #from functions.develop import Develop

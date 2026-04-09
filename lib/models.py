@@ -94,4 +94,4 @@ class RestoreJobFileMap(Base):
     __table_args__ = (UniqueConstraint('file_id', 'restore_job_id'),)
 
     def __repr__(self):
-        return f'Restore job file map object: {self.id}'
+        return f'Restore job file map object: {self.id} job {self.restore_job_id} file {self.file_id} restored {self.restored}'

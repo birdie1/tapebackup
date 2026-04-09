@@ -4,6 +4,7 @@ import sys
 from lib import database
 from functions.encryption import Encryption
 from lib.tools import Tools
+from pathlib import Path
 
 logger = logging.getLogger()
 
@@ -36,7 +37,7 @@ class Restore:
             logger.error("None of the specified files found")
             return
 
-        self.jobid = database.add_restore_job(self.session)
+        self.jobid = database.add_restore_job(self.session).id
         database.add_restore_job_files(self.session, self.jobid, file_ids)
 
         print(f"Restore job {self.jobid} created:")
@@ -57,14 +58,14 @@ class Restore:
     #   3) restore the files to the configured target directory
     #   4) determine a list of tapes to load for the next round
     #      and prompt the user to load these
-    def cont(self, jobid=None):
+    def cont(self, jobid=None, skip_tapes=[]):
         if jobid is None:
             self.set_latest_job()
         else:
             self.jobid = jobid
 
         tag_in_tapelib, tags_to_remove_from_library = self.tapelibrary.get_tapes_tags_from_library(self.session)
-        tapes = tag_in_tapelib + tags_to_remove_from_library
+        tapes = [t for t in tag_in_tapelib + tags_to_remove_from_library if t not in skip_tapes]
 
         files = database.get_restore_job_files(self.session, self.jobid, tapes, restored=False)
         if files:
@@ -97,8 +98,10 @@ class Restore:
     table_format_list = [
         ('Job ID',          lambda i: i[0]),
         ('Started',         lambda i: i[1]),
-        ('Remaining Files', lambda i: i[3]),
-        ('Remaining Size',  lambda i: i[4]),
+        ('Remaining Files', lambda i: i[2]),
+        ('Remaining Size', lambda i: Tools.convert_size(i[3])),
+        ('Remaining Tapes', lambda i: i[4]),
+
     ]
 
     def list(self):
@@ -107,9 +110,9 @@ class Restore:
 
     table_format_status = [
         ('#',           lambda i: i[-1]),
-        ('Files',       lambda i: i[3]),
-        ('Filesize',    lambda i: Tools.convert_size(i[4]) if isinstance(i[4], int) else i[4]),
-        ('Tapes',       lambda i: i[5]),
+        ('Files', lambda i: i[2]),
+        ('Filesize', lambda i: Tools.convert_size(i[3]) if isinstance(i[3], int) else i[3]),
+        ('Tapes', lambda i: i[4]),
     ]
 
     table_format_status_files = [
@@ -130,19 +133,19 @@ class Restore:
             sys.exit(1)
 
         table = []
-        stats_t = database.get_restore_job_stats_total(self.session, self.jobid)[0]
+        stats_t = database.get_restore_job_stats_total(self.session, self.jobid)
         stats_r = database.get_restore_job_stats_remaining(self.session, self.jobid)
-        if stats_r:
-            stats_r = stats_r[0]
-        else:
-            stats_r = [0]*6
+        if not stats_r:
+            stats_r = [0] * 5
+
         table_data = [list(stats_t) + ["Total"]]
-        table_data += [[None]*3 + [
-            f"{stats_r[3]} ({stats_r[3]/stats_t[3]*100:.2f}%)",
-            f"{Tools.convert_size(stats_r[4])} ({stats_r[4]/stats_t[4]*100:.2f}%)",
-            f"{stats_r[5]} ({stats_r[5]/stats_t[5]*100:.2f}%)",
+        table_data += [[None] * 2 + [
+            f"{stats_r[2]} ({stats_r[2] / stats_t[2] * 100:.2f}%)",
+            f"{Tools.convert_size(stats_r[3])} ({stats_r[3] / stats_t[3] * 100:.2f}%)",
+            f"{stats_r[4]} ({stats_r[4] / stats_t[4] * 100:.2f}%)",
             "Remaining"
         ]]
+
         Tools.table_print(table_data, self.table_format_status)
 
         if verbose:
@@ -184,7 +187,7 @@ class Restore:
                 break
 
     def restore_from_tape(self, tape, files):
-        logger.info(f'Restoring from tape {tape}')
+        logger.info('Restoring %s files from tape %s', len(files), tape)
         self.tapelibrary.load(tape)
         self.tapelibrary.ltfs()
 
@@ -223,10 +226,17 @@ class Restore:
         return grouped
 
     def restore_single_file(self, file):
-        logger.info(f'Restoring {file.path}')
+        """
+        Decrypt a file.
+        """
+        logger.info('Restoring %s', file.path)
         success = self.encryption.decrypt_relative(file.filename_encrypted, file.path, mkdir=True)
         if success:
-            logger.debug(f'Restored {file.path} successfully')
+            restored_path = Path(self.config['restore-dir']) / file.path
+            if self.tools.md5sum(restored_path) != file.md5sum_file:
+                logging.warning('Restored file md5 sum mismatch for %s',file.path)
+            else:
+                logger.debug('Restored %s successfully', file.path)
             database.set_file_restored(self.session, self.jobid, file.id)
         else:
-            logger.error(f'Restoring {file.path} failed')
+            logger.error('Restoring %s failed', file.path)

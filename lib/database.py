@@ -441,6 +441,7 @@ def add_restore_job(session):
     job = RestoreJob(startdate=datetime.datetime.now())
     session.add(job)
     session.commit()
+    return job
 
 @retry_transaction()
 def add_restore_job_files(session, jobid, fileids):
@@ -482,7 +483,10 @@ def set_file_restored(session, restore_id, file_id):
     """
     Update a restore job file as restored.
     """
-    job_map = session.query(RestoreJobFileMap).filter(RestoreJobFileMap.restore_job_id, RestoreJobFileMap.file_id).first()
+    job_map = session.query(RestoreJobFileMap).filter(
+        RestoreJobFileMap.restore_job_id == restore_id,
+        RestoreJobFileMap.file_id == file_id
+    ).first()
     job_map.restored = True
     session.commit()
 
@@ -511,13 +515,10 @@ def delete_restore_job(session, jobid):
     session.commit()
 
 
-def get_restore_job_stats_remaining(session, jobid=None):
+def get_restore_job_stats_remaining(session, jobid=None, all=False):
     """
-    Get remaining statistics from a running restore jib.
+    Get remaining statistics from a running restore job.
     """
-    if jobid is None:
-        jobid = get_latest_restore_job(session)
-
     job = session.query(
         RestoreJob.id,
         RestoreJob.startdate,
@@ -528,18 +529,20 @@ def get_restore_job_stats_remaining(session, jobid=None):
         RestoreJobFileMap, RestoreJobFileMap.restore_job_id == RestoreJob.id
     ).join(
         File, RestoreJobFileMap.file_id == File.id
-    ).filter(RestoreJob.id == jobid, RestoreJobFileMap.restored == False).first()
+    ).filter(RestoreJobFileMap.restored == False)
 
-    return job
+    if all:
+        return job.all()
+
+    if jobid is None:
+        jobid = get_latest_restore_job(session).id
+    return job.filter(RestoreJob.id == jobid).first()
 
 
-def get_restore_job_stats_total(session, jobid=None):
+def get_restore_job_stats_total(session, jobid=None, all=False):
     """
     Get statistics from all restore jobs.
     """
-    if jobid is None:
-        jobid = get_latest_restore_job(session)
-
     job = session.query(
         RestoreJob.id,
         RestoreJob.startdate,
@@ -550,9 +553,14 @@ def get_restore_job_stats_total(session, jobid=None):
         RestoreJobFileMap, RestoreJobFileMap.restore_job_id == RestoreJob.id
     ).join(
         File, RestoreJobFileMap.file_id == File.id
-    ).filter(RestoreJob.id == jobid).first()
+    )
 
-    return job
+    if all:
+        return job.all()
+
+    if jobid is None:
+        jobid = get_latest_restore_job(session).id
+    return job.filter(RestoreJob.id == jobid).first()
 
 
 def get_files_like(session, filelist=None, tape=None, written=False):
