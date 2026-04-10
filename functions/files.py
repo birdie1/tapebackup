@@ -2,6 +2,7 @@ import datetime
 import logging
 import time
 import os
+import shutil
 import sys
 import subprocess
 import threading
@@ -169,6 +170,12 @@ class Files:
                 while threading.active_count() > 1:
                     time.sleep(1)
                 logger.warning("max-storage-size reached, exiting!")
+                break
+
+            # Check if there is still place available on the mountpoint to prevent getting more files if already nearly full
+            _, _, free = shutil.disk_usage(self.config['local-data-dir'])
+            if free < 100000000000:
+                logger.error("On the local-data-dir is less than 100GB space, exiting to avoid a full disk!")
                 break
 
             if fpath.strip() == "":
