@@ -4,10 +4,43 @@ import re
 import sys
 import os
 import time
+from typing import List
 
 from lib import database
 
 logger = logging.getLogger()
+
+def send_tape_command(command: list, error_message=None, timeout=30, max_retries=3, sleeptime=1) -> List[str]:
+    """
+    Send a tape command.
+
+    Because it often returns the error "mtx: Request Sense: Long Report=yes" at the first try, repeat it
+
+    Returnes a list of lines from stdout
+    """
+    for attempt in range(max_retries):
+        try:
+            mtx = subprocess.run(command, timeout=timeout, capture_output=True, text=True, check=False)
+        except subprocess.TimeoutExpired:
+            logger.error("Timeout while trying to reach tapedive, is it running?")
+            sys.exit(1)
+
+        error = mtx.stderr.splitlines()
+        if len(error) > 0:
+            if attempt == max_retries - 1:
+                if error_message is not None:
+                    logger.error(error_message)
+                else:
+                    logger.error("Giving up reaching tape device. (%s/%s). Error: %s", attempt+1, max_retries, error)
+                sys.exit(1)
+            logger.warning(
+                "Reaching tape device failed, waiting %s seconds for next retry (%s/%s).", sleeptime, attempt+1, max_retries)
+            time.sleep(sleeptime)
+            continue
+
+        return mtx.stdout.splitlines()
+    logger.error("Sending tape command failed! This error should be thrown only when except block did not catch it!")
+    sys.exit(1)
 
 
 class Tapelibrary:
@@ -18,15 +51,10 @@ class Tapelibrary:
     def get_tapes_tags_from_library(self, session):
         time_started = time.time()
         logger.debug("Retrieving current tape tags in library")
-        commands = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
-        mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        command = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
+        mtx_out = send_tape_command(command)
         tag_in_tapelib = []
         tags_to_remove_from_library = []
-
-        error = mtx.stderr.readlines()
-        if len(error) > 0:
-            logger.error(error[0])
-            sys.exit(1)
 
         try:
             lto_whitelist = len(self.config['lto-whitelist'])
@@ -35,8 +63,7 @@ class Tapelibrary:
         except KeyError:
             lto_whitelist = None
 
-        for i in mtx.stdout.readlines():
-            line = i.decode('utf-8').rstrip().lstrip()
+        for line in mtx_out:
             if line.find('VolumeTag') != -1:
                 tag = line[line.find('=') + 1:].rstrip().lstrip()
 
@@ -68,73 +95,78 @@ class Tapelibrary:
         return tag_in_tapelib, tags_to_remove_from_library
 
     def get_current_tag_in_transfer_element(self):
-        commands = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
-        mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        """
+        Get the label of the tape which are currently in transfer element
+        """
+        command = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
+        mtx_out = send_tape_command(command)
 
-        for i in mtx.stdout.readlines():
-            line = i.decode('utf-8').rstrip().lstrip()
+        for line in mtx_out:
             if 'Data Transfer Element' in line:
                 if 'Empty' in line:
                     return False
-                elif 'Full' in line:
-                    return line[line.find('=') + 1:].rstrip().lstrip()
+                return line[line.find('=') + 1:].rstrip().lstrip()
         logger.error("Can't find 'Full' or 'Empty' tag in line 'Data Transfer Element'")
 
     def get_slot_by_tag(self, tag):
-        commands = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
-        mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        """
+        Get slot in library where the tape is currently located
+        """
+        command = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
+        mtx_out = send_tape_command(command)
 
-        for i in mtx.stdout.readlines():
-            line = i.decode('utf-8').rstrip().lstrip()
+        for line in mtx_out:
             if tag in line:
                 x = re.search(r".*Storage Element (\d+):Full.*", line)
                 return x.group(1)
+        return None
 
     def load_by_tag(self, tag):
-        slot = self.get_slot_by_tag(tag)
-        commands = ['mtx', '-f', self.config['devices']['tapelib'], 'load', slot]
-        mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        """
+        Load a tape by the label from library into drive
 
-        if len(mtx.stderr.readlines()) > 0:
-            logger.error("Cant load tape into drive, giving up")
-            sys.exit(1)
-        else:
-            logger.info("Tape {} loaded successfully".format(tag))
+        Can take up to 180 seconds
+        """
+        slot = self.get_slot_by_tag(tag)
+        command = ['mtx', '-f', self.config['devices']['tapelib'], 'load', slot]
+        send_tape_command(command, error_message="Cant load tape into drive, giving up", timeout=180)
+        logger.info("Tape {} loaded successfully".format(tag))
 
     def unmount(self):
+        """
+        Unmounting LTFS from local tape mount dir
+        """
         time_started = time.time()
-        logger.debug("Unmounting: {}".format(self.config['local-tape-mount-dir']))
-        commands = ['umount', self.config['local-tape-mount-dir']]
-        umount = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if len(umount.stderr.readlines()) > 0:
-            logger.debug("Execution Time: Unmounting tape: {} seconds".format(time.time() - time_started))
-            logger.error("Cant unmount, giving up")
-            sys.exit(1)
-        logger.debug("Execution Time: Unmounting tape: {} seconds".format(time.time() - time_started))
+        logger.debug("Unmounting: %s", self.config['local-tape-mount-dir'])
+        command = ['umount', self.config['local-tape-mount-dir']]
+        send_tape_command(command, error_message="Cant unmount tape, giving up")
+        logger.debug("Execution Time: Unmounting tape: %s seconds", time.time() - time_started)
 
     def unload(self):
+        """
+        Unloading tape from drive back into library
+
+        Can take up to 180 seconds.
+        """
         if os.path.ismount(self.config['local-tape-mount-dir']):
             self.unmount()
 
         time_started = time.time()
-        commands = ['mtx', '-f', self.config['devices']['tapelib'], 'unload']
-        mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        command = ['mtx', '-f', self.config['devices']['tapelib'], 'unload']
+        send_tape_command(command, error_message="Cant unload tape from drive into library, giving up", timeout=180)
 
-        if len(mtx.stderr.readlines()) > 0:
-            logger.error("Cant unload drive, giving up")
-            logger.debug("Execution Time: Unloading tape: {} seconds".format(time.time() - time_started))
-            sys.exit(1)
-        else:
-            logger.info("Drive unloaded loaded successfully")
-
-        logger.debug("Execution Time: Unloading tape: {} seconds".format(time.time() - time_started))
+        logger.info("Drive unloaded loaded successfully")
+        logger.debug("Execution Time: Unloading tape: %s seconds", time.time() - time_started)
 
     def load(self, next_tape):
+        """
+        Load a tape into drive
+        """
         time_started = time.time()
         loaded_tag = self.get_current_tag_in_transfer_element()
 
         if not loaded_tag:
-            logger.info("Loading tape ({}) into drive".format(next_tape))
+            logger.info("Loading tape (%s) into drive", next_tape)
             self.load_by_tag(next_tape)
         else:
             if loaded_tag != next_tape:
@@ -143,29 +175,35 @@ class Tapelibrary:
                 self.unload()
 
                 logger.debug("Drive unloaded")
-                logger.info("Loading tape ({}) into drive".format(next_tape))
+                logger.info("Loading tape (%s) into drive", next_tape)
 
                 self.load_by_tag(next_tape)
-        logger.debug("Execution Time: Load tape into tapedrive: {} seconds".format(time.time() - time_started))
+        logger.debug("Execution Time: Load tape into tapedrive: %s seconds",  time.time() - time_started)
 
     def ltfs(self):
+        """
+        Try to mount ltfs, if not possible, make ltfs filesystem and then mount
+        """
         mounted = self.mount_ltfs()
         if not mounted:
             self.mkltfs()
             self.mount_ltfs()
 
     def mkltfs(self):
+        """
+        Make ltfs on tape
+        """
         time_started = time.time()
         commands = ['mkltfs', '-d', self.config['devices']['tapedrive'], '--no-compression']
         ltfs = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         std_out, std_err = ltfs.communicate()
 
-        logger.info("Formating Tape: {}".format(std_out))
+        logger.info("Formating Tape: %s", std_out)
         if ltfs.returncode != 0:
-            logger.debug(f"Return code: {ltfs.returncode}")
-            logger.debug(f"std out: {std_out}")
-            logger.debug(f"std err: {std_err}")
-        logger.debug("Execution Time: Make LTFS: {} seconds".format(time.time() - time_started))
+            logger.debug("Return code: %s", ltfs.returncode)
+            logger.debug("std out: %s", std_out)
+            logger.debug("std err: %s", std_err)
+        logger.debug("Execution Time: Make LTFS: %s seconds", time.time() - time_started)
 
     def force_mkltfs(self):
         # Caution! This will force overriding existing tape. Use it only in case of 'No Space left on device' problems!
@@ -188,6 +226,11 @@ class Tapelibrary:
         logger.debug("Execution Time: Force making LTFS: {} seconds".format(time.time() - time_started))
 
     def mount_ltfs(self):
+        """
+        Mount ltfs on tape to a local directory
+
+        Can tape up to 60 seconds
+        """
         time_started = time.time()
         if os.path.ismount(self.config['local-tape-mount-dir']):
             logger.debug('LTFS already mounted, skip mounting')
@@ -206,47 +249,53 @@ class Tapelibrary:
 
             x = re.findall("Mountpoint .*{}.* specified but not accessible".format(self.config['local-tape-mount-dir']), error)
             if len(x) > 0:
-                logger.error("Tapedrive mountpoint not found, please create folder: {}".format(self.config['local-tape-mount-dir']))
+                logger.error("Tapedrive mountpoint not found, please create folder: %s", self.config['local-tape-mount-dir'])
                 sys.exit(1)
 
             logger.error("Unknown error when trying to mount")
-            logger.debug("Execution Time: Mount LTFS: {} seconds".format(time.time() - time_started))
+            logger.debug("Execution Time: Mount LTFS: %s seconds", time.time() - time_started)
             sys.exit(1)
 
         else:
             logger.info("LTFS successfully mounted")
-            logger.debug("Execution Time: Mount LTFS: {} seconds".format(time.time() - time_started))
+            logger.debug("Execution Time: Mount LTFS: %s seconds", time.time() - time_started)
             return True
 
     def loaderinfo(self):
-        commands = ['loaderinfo', '-f', self.config['devices']['tapelib']]
-        loaderinfo = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        """
+        Get loadinfo
+        """
+        command = ['loaderinfo', '-f', self.config['devices']['tapelib']]
+        return send_tape_command(command)
 
-        return loaderinfo.stdout.readlines()
 
     def tapeinfo(self):
-        commands = ['tapeinfo', '-f', self.config['devices']['tapedrive']]
-        tapeinfo = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        return tapeinfo.stdout.readlines()
+        """
+        Get tapeinfo
+        """
+        command = ['tapeinfo', '-f', self.config['devices']['tapedrive']]
+        return send_tape_command(command)
 
     def mtxinfo(self):
-        commands = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
-        mtx = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        return mtx.stdout.readlines()
+        """
+        Get mtx info
+        """
+        command = ['mtx', '-f', self.config['devices']['tapelib'], 'status']
+        return send_tape_command(command)
 
     def get_current_lto_version(self):
+        """
+        Get current lto version in transfer element
+        """
         loaded_tag = self.get_current_tag_in_transfer_element()
         x = re.search(r".*L(\d)$", loaded_tag)
         return int(x.group(1))
 
     def get_current_blocksize(self):
-        commands = ['mt-st', '-f', self.config['devices']['tapedrive'], 'status']
-        mt_st = subprocess.Popen(commands, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        command = ['mt-st', '-f', self.config['devices']['tapedrive'], 'status']
+        mtx_out = send_tape_command(command)
 
-        for i in mt_st.stdout.readlines():
-            line = i.decode('utf-8').rstrip().lstrip()
+        for line in mtx_out:
             if 'Tape block size' in line:
                 x = re.search(r".*Tape block size (\d*) bytes.*", line)
                 return int(x.group(1))

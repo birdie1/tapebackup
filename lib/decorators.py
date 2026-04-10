@@ -17,11 +17,11 @@ def retry_transaction(max_retries=10, sleeptime=5):
                 except (OperationalError, sqlite3.OperationalError) as e:
                     session.rollback()
                     if attempt == max_retries - 1:
-                        logger.error("Database locked, giving up. (%s/%s). Error: %s", attempt, max_retries, e)
+                        logger.error("Database locked, giving up. (%s/%s). Error: %s", attempt+1, max_retries, e)
                         logger.error("Please run ./main.py db repair to remove stale entries!")
                         raise
                     logger.warning(
-                        "Database locked, waiting %s seconds for next retry (%s/%s).", sleeptime, attempt, max_retries)
+                        "Database locked, waiting %s seconds for next retry (%s/%s).", sleeptime, attempt+1, max_retries)
                     time.sleep(sleeptime)
             return None
 
