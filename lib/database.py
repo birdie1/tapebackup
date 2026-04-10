@@ -85,7 +85,7 @@ def insert_or_update_db_version(session, db_version):
     version.value = db_version
     session.commit()
 
-
+@retry_transaction(sleeptime=0.5)
 def file_exists_by_path(session, relative_path):
     """
     Check if filename known in database
@@ -110,6 +110,7 @@ def insert_file(session, filename, relative_path):
     return file
 
 
+@retry_transaction(sleeptime=0.5)
 def get_file_by_md5(session, md5):
     """
     Get a file by its md5 checksum
@@ -316,6 +317,7 @@ def get_files_to_be_encrypted(session):
     return session.query(File).filter(File.downloaded.is_(True), File.encrypted.is_(False)).all()
 
 
+@retry_transaction(sleeptime=0.5)
 def filename_encrypted_already_used(session, filename_encrypted):
     """
     Check if filename_encrypted is already in use to prevent errors.
