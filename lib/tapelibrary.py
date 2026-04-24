@@ -30,6 +30,7 @@ def send_tape_command(command: list, error_message=None, timeout=30, max_retries
             if attempt == max_retries - 1:
                 if error_message is not None:
                     logger.error(error_message)
+                    logger.debug(error)
                 else:
                     logger.error("Giving up reaching tape device. (%s/%s). Error: %s", attempt+1, max_retries, error)
                 sys.exit(1)
